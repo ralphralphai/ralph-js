@@ -1,0 +1,18 @@
+packages:
+  - packages/*
+
+blockExoticSubdeps: true
+
+catalog:
+  '@types/react': 19.2.17
+  openapi-typescript: 7.13.0
+  react: 19.2.8
+  tsdown: 0.22.14
+  typescript: 7.0.2
+  vitest: 4.1.10
+
+catalogs:
+  ts5:
+    typescript: 5.9.2
+
+minimumReleaseAge: 10080

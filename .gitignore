@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.tgz
+
+# Holds the npm auth token when publishing from a laptop.
+.npmrc
+
+# Generated from api/openapi.json by `@ralphralphai/schema`'s build.
+packages/schema/src/generated/

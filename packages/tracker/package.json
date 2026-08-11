@@ -1,0 +1,75 @@
+{
+  "name": "@ralphralphai/tracker",
+  "version": "1.0.0",
+  "description": "Browser SDK for Ralph. Records data-track-id clicks, page views and pointer position, and streams them as compressed columnar batches.",
+  "license": "Apache-2.0",
+  "author": "RalphRalph AI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ralphralphai/ralph-js.git",
+    "directory": "packages/tracker"
+  },
+  "homepage": "https://github.com/ralphralphai/ralph-js/tree/main/packages/tracker#readme",
+  "bugs": {
+    "url": "https://github.com/ralphralphai/ralph-js/issues"
+  },
+  "keywords": [
+    "ralph",
+    "analytics",
+    "heatmap",
+    "react",
+    "tracking"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./client": {
+      "import": {
+        "types": "./dist/client.d.mts",
+        "default": "./dist/client.mjs"
+      },
+      "require": {
+        "types": "./dist/client.d.cts",
+        "default": "./dist/client.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "/dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "check": "tsc --noEmit",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@ralphralphai/schema": "workspace:*",
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

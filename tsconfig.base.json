@@ -1,0 +1,14 @@
+{
+  // Third-party `.d.ts` files are not ours to fix, and several @types packages
+  // in the tree conflict with each other. Checking them only produces noise.
+  "compilerOptions": {
+    "skipLibCheck": true
+  },
+  "watchOptions": {
+    "watchFile": "useFsEvents",
+    "watchDirectory": "useFsEvents",
+    "fallbackPolling": "dynamicPriority",
+    "excludeDirectories": ["**/node_modules", "**/dist"],
+    "excludeFiles": ["**/node_modules/**/*"]
+  }
+}

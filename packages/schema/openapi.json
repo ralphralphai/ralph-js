@@ -1,0 +1,490 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ralph",
+    "description": "Multi-tenant ingestion for user-interaction analytics.",
+    "license": {
+      "name": "ISC",
+      "identifier": "ISC"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "`GET /health` — readiness for the container orchestrator.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Server is up and the pool is reachable"
+          }
+        }
+      }
+    },
+    "/v1/ingest": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Accept one batch of interaction events.",
+        "operationId": "ingest",
+        "requestBody": {
+          "description": "Columnar event batch, gzip-compressed. Send `Content-Encoding: gzip`.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Batch durably stored"
+          },
+          "400": {
+            "description": "Malformed or invalid batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, unknown or revoked API key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds the compressed or decompressed limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Columns": {
+        "type": "object",
+        "required": [
+          "dt",
+          "ty"
+        ],
+        "properties": {
+          "c": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "dt": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "px": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "py": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "rx": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "ry": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "s": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "sx": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "sy": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "tr": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "ty": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "u": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "The body of any non-2xx response.",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "A stable, machine-readable reason."
+          },
+          "message": {
+            "type": "string",
+            "description": "A human-readable detail. Safe to log; never echoes the payload."
+          }
+        }
+      },
+      "EventBatch": {
+        "type": "object",
+        "description": "One flush from the browser SDK.\n\n`projectId` is deliberately absent: it is derived from the API key, so a\nclient cannot assert another tenant's project. `userId` necessarily *is*\nclient-asserted — there is no way around that for anonymous analytics, so it\nis mitigated with per-key rate limiting rather than pretended away.",
+        "required": [
+          "v",
+          "userId",
+          "sessionId",
+          "t0",
+          "urls",
+          "tracks",
+          "sizes",
+          "n",
+          "cols"
+        ],
+        "properties": {
+          "buildId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cols": {
+            "$ref": "#/components/schemas/Columns"
+          },
+          "n": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Event count. Explicit rather than inferred from `dt.length`, so a\ntruncated or mismatched body fails validation instead of decoding short.",
+            "minimum": 0
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sizes": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              ]
+            },
+            "description": "Interned viewport sizes as `[width, height]`. `cols.s` indexes this."
+          },
+          "t0": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Base epoch ms. Each event's `dt` is milliseconds since the previous\nevent, so absolute timestamps are recovered by a running sum from here."
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Interned `data-track-id`s. `[0]` is reserved and always `\"\"`, so `tr` of\n`0` means \"no tracked element\" by construction and `tr` of `k` is plainly\n`tracks[k]`. Reserving a slot puts that in the data instead of making it a\n±1 both decoders have to remember — and an off-by-one here would\nmisattribute every click on whichever element interned first, silently,\nrather than crashing."
+          },
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Interned absolute hrefs. `cols.u` indexes this."
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "SDK-generated anonymous UUID."
+          },
+          "v": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Format version.",
+            "minimum": 0
+          }
+        }
+      },
+      "MouseMoveEvent": {
+        "type": "object",
+        "required": [
+          "dt",
+          "ty",
+          "u",
+          "s",
+          "px",
+          "py"
+        ],
+        "properties": {
+          "c": {
+            "type": "integer"
+          },
+          "dt": {
+            "type": "integer"
+          },
+          "px": {
+            "type": "integer"
+          },
+          "py": {
+            "type": "integer"
+          },
+          "s": {
+            "type": "integer"
+          },
+          "ty": {
+            "type": "integer",
+            "enum": [
+              8
+            ]
+          },
+          "u": {
+            "type": "integer"
+          }
+        }
+      },
+      "PageClickEvent": {
+        "type": "object",
+        "required": [
+          "dt",
+          "ty",
+          "u",
+          "s",
+          "px",
+          "py"
+        ],
+        "properties": {
+          "dt": {
+            "type": "integer"
+          },
+          "px": {
+            "type": "integer"
+          },
+          "py": {
+            "type": "integer"
+          },
+          "rx": {
+            "type": "integer"
+          },
+          "ry": {
+            "type": "integer"
+          },
+          "s": {
+            "type": "integer"
+          },
+          "tr": {
+            "type": "integer"
+          },
+          "ty": {
+            "type": "integer",
+            "enum": [
+              4
+            ]
+          },
+          "u": {
+            "type": "integer"
+          }
+        }
+      },
+      "PageViewEvent": {
+        "type": "object",
+        "required": [
+          "dt",
+          "ty",
+          "u",
+          "s",
+          "sx",
+          "sy"
+        ],
+        "properties": {
+          "c": {
+            "type": "integer"
+          },
+          "dt": {
+            "type": "integer"
+          },
+          "s": {
+            "type": "integer"
+          },
+          "sx": {
+            "type": "integer"
+          },
+          "sy": {
+            "type": "integer"
+          },
+          "ty": {
+            "type": "integer",
+            "enum": [
+              5
+            ]
+          },
+          "u": {
+            "type": "integer"
+          }
+        }
+      },
+      "PressableEvent": {
+        "type": "object",
+        "required": [
+          "dt",
+          "ty",
+          "tr"
+        ],
+        "properties": {
+          "dt": {
+            "type": "integer"
+          },
+          "tr": {
+            "type": "integer"
+          },
+          "ty": {
+            "type": "integer",
+            "enum": [
+              1
+            ]
+          }
+        }
+      },
+      "RalphEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PressableEvent"
+          },
+          {
+            "$ref": "#/components/schemas/PageClickEvent"
+          },
+          {
+            "$ref": "#/components/schemas/PageViewEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SessionStartEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SessionEndEvent"
+          },
+          {
+            "$ref": "#/components/schemas/MouseMoveEvent"
+          }
+        ]
+      },
+      "SessionEndEvent": {
+        "type": "object",
+        "required": [
+          "dt",
+          "ty"
+        ],
+        "properties": {
+          "dt": {
+            "type": "integer"
+          },
+          "ty": {
+            "type": "integer",
+            "enum": [
+              7
+            ]
+          }
+        }
+      },
+      "SessionStartEvent": {
+        "type": "object",
+        "required": [
+          "dt",
+          "ty"
+        ],
+        "properties": {
+          "dt": {
+            "type": "integer"
+          },
+          "ty": {
+            "type": "integer",
+            "enum": [
+              6
+            ]
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "api_key": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "ingest",
+      "description": "Event ingestion"
+    },
+    {
+      "name": "ops",
+      "description": "Operational endpoints"
+    }
+  ]
+}

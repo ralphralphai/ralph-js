@@ -1,0 +1,23 @@
+{
+  "private": true,
+  "name": "ralph-js",
+  "version": "0.0.0",
+  "description": "Ralph's public JavaScript packages: the browser SDK and the crawl configuration types.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "check": "pnpm -r check",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
+  },
+  "devDependencies": {
+    "oxfmt": "0.63.0",
+    "oxlint": "1.78.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  },
+  "packageManager": "pnpm@10.15.0"
+}

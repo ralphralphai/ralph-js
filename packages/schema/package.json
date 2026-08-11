@@ -1,0 +1,41 @@
+{
+  "name": "@ralphralphai/schema",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Ralph wire contract: OpenAPI types generated from openapi.json, plus the columnar batch encoder. Inlined into @ralphralphai/tracker at build time rather than published on its own.",
+  "license": "Apache-2.0",
+  "author": "RalphRalph AI",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "/dist"
+  ],
+  "scripts": {
+    "generate": "openapi-typescript ./openapi.json -o src/generated/openapi.ts",
+    "build": "pnpm generate && tsdown",
+    "check": "pnpm generate && tsc --noEmit",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "openapi-typescript": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:ts5",
+    "vitest": "catalog:"
+  }
+}

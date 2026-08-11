@@ -1,0 +1,56 @@
+{
+  "name": "@ralphralphai/config",
+  "version": "1.0.0",
+  "description": "The configuration contract for Ralph: the rule types a ralph.config.json declares.",
+  "license": "Apache-2.0",
+  "author": "RalphRalph AI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ralphralphai/ralph-js.git",
+    "directory": "packages/config"
+  },
+  "homepage": "https://github.com/ralphralphai/ralph-js/tree/main/packages/config#readme",
+  "bugs": {
+    "url": "https://github.com/ralphralphai/ralph-js/issues"
+  },
+  "keywords": [
+    "ralph",
+    "analytics",
+    "crawler",
+    "configuration",
+    "types"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "/dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "check": "tsc --noEmit",
+    "lint": "oxlint"
+  },
+  "devDependencies": {
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  }
+}
