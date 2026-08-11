@@ -13,7 +13,7 @@ export type WebRalphConfig = {
    * Normalize rules to apply to the URLs for the data aggregation. E.g. user
    * identifying query params to the URL should be irrelevant for the analysis.
    */
-  urlAnalysisNormalizeRule?: UrlNormalizeRule;
+  urlAnalysisNormalizeRules?: UrlNormalizeRule;
 
   /**
    * Normalize rules to apply to the URLs for the crawl.
