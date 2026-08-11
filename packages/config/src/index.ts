@@ -8,7 +8,7 @@
 // `searchParams`, and it is private to the Ralph repo.
 
 export type { DataFollowIgnoreRule } from '@/data_follow_ignore';
-export type { RalphConfig } from '@/ralph';
+export type { WebRalphConfig } from '@/ralph';
 export type { ScreenSize } from '@/screen_size';
 export type {
   Condition,
