@@ -3,16 +3,14 @@ import { z } from 'zod';
 import { UrlRuleMatcherSchema } from '@/url_normalize';
 
 export const VariantSchema = z
-  .object({
+  .strictObject({
     id: z.string().describe('The id this variant is aggregated under.'),
     queryParams: z
-      .object({
-        key: z.string(),
-        value: z.string(),
-      })
-      .array()
+      .record(z.string(), z.string())
       .optional()
-      .describe('The query params that identify this variant.'),
+      .describe(
+        'The query params that identify this variant, as exact key / value pairs. Omit it for the variant a URL carrying none of the others falls back to.',
+      ),
   })
   .meta({
     id: 'Variant',
@@ -20,14 +18,9 @@ export const VariantSchema = z
   });
 
 export const VariantRuleSchema = z
-  .object({
-    rules: z
-      .object({
-        matcher: UrlRuleMatcherSchema,
-        variants: VariantSchema.array(),
-      })
-      .array()
-      .optional(),
+  .strictObject({
+    matcher: UrlRuleMatcherSchema,
+    variants: VariantSchema.array(),
   })
   .meta({
     id: 'VariantRule',

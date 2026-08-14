@@ -2,44 +2,44 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
+    "$schema": {
+      "description": "Pointer to this JSON Schema, so an editor completes and validates the file.",
+      "type": "string"
+    },
     "urlsToCrawl": {
-      "description": "List of URLs to initiate the crawl. Should be publicly accessible.",
+      "description": "List of URLs to initiate the crawl. Should be accessible from the crawler.",
       "type": "array",
       "items": {
         "type": "string"
       }
     },
     "urlAnalysisNormalizeRules": {
-      "description": "Normalize rules to apply to the URLs for the data aggregation. E.g. user identifying query params to the URL should be irrelevant for the analysis.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/UrlNormalizeRule"
-        }
-      ]
+      "description": "Normalize rules to apply to the URLs for the data aggregation, in order. E.g. user identifying query params to the URL should be irrelevant for the analysis.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/UrlNormalizeRule"
+      }
     },
     "urlCrawlNormalizeRules": {
-      "description": "Normalize rules to apply to the URLs for the crawl. Applied as the crawler visits a matching URL, which dedupes the URLs when building the Web navigation graph.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/UrlNormalizeRule"
-        }
-      ]
+      "description": "Normalize rules to apply to the URLs for the crawl, in order. Applied as the crawler visits a matching URL, which dedupes the URLs when building the Web navigation graph.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/UrlNormalizeRule"
+      }
     },
     "variantRules": {
       "description": "Variant rules to apply to the specific URL. E.g. when A/B testing multiple versions of the same page, the variant rules identify the versions so they can be aggregated.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/VariantRule"
-        }
-      ]
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/VariantRule"
+      }
     },
-    "dataFollowIgnoreRule": {
+    "dataFollowIgnoreRules": {
       "description": "Follow ids to skip on matched URLs, so the crawler doesn't keep re-visiting nav-bar/footer links that appear on every page.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/DataFollowIgnoreRule"
-        }
-      ]
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DataFollowIgnoreRule"
+      }
     },
     "screenSizes": {
       "type": "array",
@@ -52,31 +52,25 @@
   "required": [
     "screenSizes"
   ],
+  "additionalProperties": false,
   "description": "The crawl configuration a `ralph.jsonc` declares.",
   "definitions": {
     "UrlNormalizeRule": {
       "type": "object",
       "properties": {
-        "rules": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "matcher": {
-                "$ref": "#/definitions/UrlRuleMatcher"
-              },
-              "transform": {
-                "$ref": "#/definitions/UrlTransformRule"
-              }
-            },
-            "required": [
-              "matcher",
-              "transform"
-            ]
-          }
+        "matcher": {
+          "$ref": "#/definitions/UrlRuleMatcher"
+        },
+        "transform": {
+          "$ref": "#/definitions/UrlTransformRule"
         }
       },
-      "description": "Matcher / transform pairs applied to a URL in order."
+      "required": [
+        "matcher",
+        "transform"
+      ],
+      "additionalProperties": false,
+      "description": "A transform to apply to the URLs a matcher matches."
     },
     "UrlRuleMatcher": {
       "type": "object",
@@ -89,241 +83,272 @@
             }
           ]
         },
-        "queryParam": {
-          "description": "Matches when the URL carries a query param whose key and value both match.",
+        "queryParams": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/QueryParamCondition"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "description": "Which URLs a rule applies to. Both fields have to match; an empty matcher matches all."
+    },
+    "Condition": {
+      "description": "How a string is tested. A bare string - or a list of them, any of which may match - is an exact match; `exact` / `prefix` / `suffix` / `contains` / `regex` / `isSet` name another test; `any` / `all` / `not` combine them.",
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ],
+          "description": "A single string, or a list in which any member matching matches."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "exact": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "A single string, or a list in which any member matching matches."
+            }
+          },
+          "required": [
+            "exact"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "prefix": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "A single string, or a list in which any member matching matches."
+            }
+          },
+          "required": [
+            "prefix"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "suffix": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "A single string, or a list in which any member matching matches."
+            }
+          },
+          "required": [
+            "suffix"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "contains": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "A single string, or a list in which any member matching matches."
+            }
+          },
+          "required": [
+            "contains"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "regex": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ],
+              "description": "A regular expression source string, or a list in which any member matching matches."
+            }
+          },
+          "required": [
+            "regex"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "isSet": {
+              "type": "boolean",
+              "const": true,
+              "description": "Matches whenever the string exists at all."
+            }
+          },
+          "required": [
+            "isSet"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Condition"
+              }
+            }
+          },
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "all": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Condition"
+              }
+            }
+          },
+          "required": [
+            "all"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "not": {
+              "$ref": "#/definitions/Condition"
+            }
+          },
+          "required": [
+            "not"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "QueryParamCondition": {
+      "description": "How a URL's query params are tested. `{ key, value }` matches when some single param has a key and a value that both match - omit `value` to test only that the key is there. `any` / `all` / `not` combine those, so `not` means no param satisfies it.",
+      "anyOf": [
+        {
           "type": "object",
           "properties": {
             "key": {
               "$ref": "#/definitions/Condition"
             },
             "value": {
-              "$ref": "#/definitions/Condition"
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Condition"
+                }
+              ]
             }
           },
           "required": [
-            "key",
-            "value"
-          ]
-        }
-      },
-      "description": "Which URLs a rule applies to. An empty matcher matches all."
-    },
-    "Condition": {
-      "description": "A matcher, or `and` / `or` / `not` nesting other conditions around one.",
-      "oneOf": [
+            "key"
+          ],
+          "additionalProperties": false
+        },
         {
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "and"
-            },
-            "conditions": {
+            "any": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/Condition"
+                "$ref": "#/definitions/QueryParamCondition"
               }
             }
           },
           "required": [
-            "type",
-            "conditions"
-          ]
+            "any"
+          ],
+          "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "or"
-            },
-            "conditions": {
+            "all": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/Condition"
+                "$ref": "#/definitions/QueryParamCondition"
               }
             }
           },
           "required": [
-            "type",
-            "conditions"
-          ]
+            "all"
+          ],
+          "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": {
-              "type": "string",
-              "const": "not"
-            },
-            "condition": {
-              "$ref": "#/definitions/Condition"
+            "not": {
+              "$ref": "#/definitions/QueryParamCondition"
             }
           },
           "required": [
-            "type",
-            "condition"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "matcher"
-            },
-            "matcher": {
-              "$ref": "#/definitions/Matcher"
-            }
-          },
-          "required": [
-            "type",
-            "matcher"
-          ]
+            "not"
+          ],
+          "additionalProperties": false
         }
       ]
-    },
-    "Matcher": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "exact"
-            },
-            "value": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ],
-              "description": "A single string, or a list in which any member matching matches."
-            }
-          },
-          "required": [
-            "type",
-            "value"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "prefix"
-            },
-            "value": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ],
-              "description": "A single string, or a list in which any member matching matches."
-            }
-          },
-          "required": [
-            "type",
-            "value"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "suffix"
-            },
-            "value": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ],
-              "description": "A single string, or a list in which any member matching matches."
-            }
-          },
-          "required": [
-            "type",
-            "value"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "contains"
-            },
-            "value": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              ],
-              "description": "A single string, or a list in which any member matching matches."
-            }
-          },
-          "required": [
-            "type",
-            "value"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "regex"
-            },
-            "value": {
-              "type": "string",
-              "description": "A regular expression source string."
-            }
-          },
-          "required": [
-            "type",
-            "value"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "is-set"
-            }
-          },
-          "required": [
-            "type"
-          ]
-        }
-      ],
-      "description": "How a single string is tested against the rule."
     },
     "UrlTransformRule": {
       "type": "object",
@@ -332,79 +357,68 @@
           "description": "Update the path of the URL to the given value.",
           "type": "string"
         },
-        "updateMatchedQueryParams": {
-          "description": "Add the given query key & value to the URL. If the query key already exists, it will be updated.",
-          "oneOf": [
-            {
-              "type": "object",
-              "properties": {
-                "type": {
-                  "type": "string",
-                  "const": "set"
+        "queryParams": {
+          "description": "Query param edits, applied in order. `set` rewrites the value of every param whose key matches, and appends the param when the key is a plain string and no param carries it; `remove` drops every param whose key matches.",
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "set": {
+                    "$ref": "#/definitions/Condition"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
                 },
-                "key": {
-                  "$ref": "#/definitions/Condition"
-                },
-                "value": {
-                  "type": "string"
-                }
+                "required": [
+                  "set",
+                  "value"
+                ],
+                "additionalProperties": false
               },
-              "required": [
-                "type",
-                "key",
-                "value"
-              ]
-            },
-            {
-              "type": "object",
-              "properties": {
-                "type": {
-                  "type": "string",
-                  "const": "remove"
+              {
+                "type": "object",
+                "properties": {
+                  "remove": {
+                    "$ref": "#/definitions/Condition"
+                  }
                 },
-                "key": {
-                  "$ref": "#/definitions/Condition"
-                }
-              },
-              "required": [
-                "type",
-                "key"
-              ]
-            }
-          ]
+                "required": [
+                  "remove"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
         },
-        "removeNotUpdatedQueryParams": {
-          "description": "If set, then remove all other query params that are not touched by the updated query params.",
+        "removeOtherQueryParams": {
+          "description": "If set, drop every query param that `queryParams` did not touch.",
           "type": "boolean"
         }
       },
+      "additionalProperties": false,
       "description": "What to rewrite on a URL the matcher matched."
     },
     "VariantRule": {
       "type": "object",
       "properties": {
-        "rules": {
+        "matcher": {
+          "$ref": "#/definitions/UrlRuleMatcher"
+        },
+        "variants": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "matcher": {
-                "$ref": "#/definitions/UrlRuleMatcher"
-              },
-              "variants": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/definitions/Variant"
-                }
-              }
-            },
-            "required": [
-              "matcher",
-              "variants"
-            ]
+            "$ref": "#/definitions/Variant"
           }
         }
       },
+      "required": [
+        "matcher",
+        "variants"
+      ],
+      "additionalProperties": false,
       "description": "The variants to look for on the URLs a matcher matches."
     },
     "Variant": {
@@ -415,52 +429,37 @@
           "description": "The id this variant is aggregated under."
         },
         "queryParams": {
-          "description": "The query params that identify this variant.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "key": {
-                "type": "string"
-              },
-              "value": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "key",
-              "value"
-            ]
+          "description": "The query params that identify this variant, as exact key / value pairs. Omit it for the variant a URL carrying none of the others falls back to.",
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "string"
           }
         }
       },
       "required": [
         "id"
       ],
+      "additionalProperties": false,
       "description": "One version of a page, identified by its query params."
     },
     "DataFollowIgnoreRule": {
       "type": "object",
       "properties": {
-        "rules": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "matcher": {
-                "$ref": "#/definitions/UrlRuleMatcher"
-              },
-              "ignore": {
-                "$ref": "#/definitions/Condition"
-              }
-            },
-            "required": [
-              "matcher",
-              "ignore"
-            ]
-          }
+        "matcher": {
+          "$ref": "#/definitions/UrlRuleMatcher"
+        },
+        "ignore": {
+          "$ref": "#/definitions/Condition"
         }
       },
+      "required": [
+        "matcher",
+        "ignore"
+      ],
+      "additionalProperties": false,
       "description": "Follow ids the crawler should not follow on the URLs a matcher matches. Without this, follow ids that appear on every page (nav bars, footers) get clicked from every node, so the crawler keeps re-visiting the same destinations."
     },
     "ScreenSize": {

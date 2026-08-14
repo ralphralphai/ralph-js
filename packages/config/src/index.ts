@@ -15,7 +15,7 @@
 export type {
   Condition,
   DataFollowIgnoreRule,
-  Matcher,
+  QueryParamCondition,
   ScreenSize,
   UrlNormalizeRule,
   UrlRuleMatcher,

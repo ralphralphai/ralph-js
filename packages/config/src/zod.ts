@@ -8,12 +8,12 @@
 // The types in `@ralphralphai/config` are generated from these schemas, so a
 // value that parses here satisfies `WebRalphConfig` by construction.
 
+export { ConditionSchema } from '@/condition';
 export { DataFollowIgnoreRuleSchema } from '@/data_follow_ignore';
+export { QueryParamConditionSchema } from '@/query_param';
 export { WebRalphConfigSchema } from '@/ralph';
 export { ScreenSizeSchema } from '@/screen_size';
 export {
-  ConditionSchema,
-  MatcherSchema,
   UrlNormalizeRuleSchema,
   UrlRuleMatcherSchema,
   UrlTransformRuleSchema,

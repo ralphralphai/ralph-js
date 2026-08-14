@@ -26,17 +26,21 @@ describe('the generated JSON Schema', () => {
     expect(buildJsonSchema().required).toEqual(['screenSizes']);
   });
 
-  // `Condition` nests inside itself, so it has to come out as a reusable
-  // definition rather than an inlined - and therefore truncated - tree.
-  it('emits the recursive Condition as a draft-7 definition', () => {
-    const definitions = buildJsonSchema().definitions as Record<
-      string,
-      unknown
-    >;
+  // `Condition` and `QueryParamCondition` nest inside themselves, so each has
+  // to come out as a reusable definition rather than an inlined - and therefore
+  // truncated - tree.
+  it.each(['Condition', 'QueryParamCondition'])(
+    'emits the recursive %s as a draft-7 definition',
+    (name) => {
+      const definitions = buildJsonSchema().definitions as Record<
+        string,
+        unknown
+      >;
 
-    expect(Object.keys(definitions)).toContain('Condition');
-    expect(JSON.stringify(definitions.Condition)).toContain(
-      '#/definitions/Condition',
-    );
-  });
+      expect(Object.keys(definitions)).toContain(name);
+      expect(JSON.stringify(definitions[name])).toContain(
+        `#/definitions/${name}`,
+      );
+    },
+  );
 });

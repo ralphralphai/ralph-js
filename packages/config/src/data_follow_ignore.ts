@@ -1,18 +1,14 @@
 import { z } from 'zod';
 
-import { ConditionSchema, UrlRuleMatcherSchema } from '@/url_normalize';
+import { ConditionSchema } from '@/condition';
+import { UrlRuleMatcherSchema } from '@/url_normalize';
 
 export const DataFollowIgnoreRuleSchema = z
-  .object({
-    rules: z
-      .object({
-        matcher: UrlRuleMatcherSchema,
-        // Left undescribed on purpose: `.describe()` clones the schema, which
-        // would drop the `Condition` id and inline the recursive definition.
-        ignore: ConditionSchema,
-      })
-      .array()
-      .optional(),
+  .strictObject({
+    matcher: UrlRuleMatcherSchema,
+    // Left undescribed on purpose: `.describe()` clones the schema, which
+    // would drop the `Condition` id and inline the recursive definition.
+    ignore: ConditionSchema,
   })
   .meta({
     id: 'DataFollowIgnoreRule',
