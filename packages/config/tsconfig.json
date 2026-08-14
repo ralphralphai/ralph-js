@@ -11,8 +11,11 @@
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // Listed explicitly: tsc does not pick up the pnpm-linked `@types/node` on
+    // its own, and `scripts/` plus the schema test read files.
+    "types": ["node"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src"],
+  "include": ["src", "scripts"],
   "exclude": ["node_modules", "dist"]
 }

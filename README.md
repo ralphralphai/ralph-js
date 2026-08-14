@@ -9,4 +9,4 @@ heatmaps.
 | Package                                     | What                                                                        |
 | ------------------------------------------- | --------------------------------------------------------------------------- |
 | [`@ralphralphai/tracker`](packages/tracker) | The browser SDK. React components plus the batching tracker.                |
-| [`@ralphralphai/config`](packages/config)   | The rule types a `ralph.config.json` declares. Types only, no runtime code. |
+| [`@ralphralphai/config`](packages/config)   | The rule types a `ralph.jsonc` declares, plus its JSON Schema.              |

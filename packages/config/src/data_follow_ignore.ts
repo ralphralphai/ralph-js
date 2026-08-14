@@ -1,13 +1,21 @@
-import type { Condition, UrlRuleMatcher } from '@/url_normalize';
+import { z } from 'zod';
 
-// Rules for follow ids the crawler should NOT follow on certain pages. Without
-// this, follow ids that appear on every page (nav bars, footers) get clicked
-// from every node, so the crawler keeps re-visiting the same destinations.
-export type DataFollowIgnoreRule = {
-  rules?: {
-    matcher: UrlRuleMatcher;
-    // Follow ids matching this condition are ignored while the crawler is on
-    // a URL the matcher matches.
-    ignore: Condition;
-  }[];
-};
+import { ConditionSchema, UrlRuleMatcherSchema } from '@/url_normalize';
+
+export const DataFollowIgnoreRuleSchema = z
+  .object({
+    rules: z
+      .object({
+        matcher: UrlRuleMatcherSchema,
+        // Left undescribed on purpose: `.describe()` clones the schema, which
+        // would drop the `Condition` id and inline the recursive definition.
+        ignore: ConditionSchema,
+      })
+      .array()
+      .optional(),
+  })
+  .meta({
+    id: 'DataFollowIgnoreRule',
+    description:
+      'Follow ids the crawler should not follow on the URLs a matcher matches. Without this, follow ids that appear on every page (nav bars, footers) get clicked from every node, so the crawler keeps re-visiting the same destinations.',
+  });

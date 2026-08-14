@@ -1,15 +1,23 @@
 packages:
   - packages/*
 
+# vitest pulls in vite, whose esbuild needs its postinstall to unpack a binary.
+allowBuilds:
+  esbuild: true
+
 blockExoticSubdeps: true
 
 catalog:
+  '@types/node': 26.1.2
   '@types/react': 19.2.17
+  json-schema-to-typescript: 15.0.4
   openapi-typescript: 7.13.0
   react: 19.2.8
   tsdown: 0.22.14
+  tsx: 4.23.8
   typescript: 7.0.2
   vitest: 4.1.10
+  zod: 4.4.3
 
 catalogs:
   ts5:

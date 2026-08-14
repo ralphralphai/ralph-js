@@ -8,3 +8,6 @@ dist/
 
 # Generated from api/openapi.json by `@ralphralphai/schema`'s build.
 packages/schema/src/generated/
+
+# Generated from the zod schemas by `@ralphralphai/config`'s build.
+packages/config/src/generated/

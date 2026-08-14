@@ -1,7 +1,7 @@
 {
   "name": "@ralphralphai/config",
-  "version": "1.0.4",
-  "description": "The configuration contract for Ralph: the rule types a ralph.config.json declares.",
+  "version": "1.1.0",
+  "description": "The configuration contract for Ralph: the rule types a ralph.jsonc declares, its JSON Schema, and the zod schemas both are generated from.",
   "license": "Apache-2.0",
   "author": "RalphRalph AI",
   "repository": {
@@ -18,7 +18,8 @@
     "analytics",
     "crawler",
     "configuration",
-    "types"
+    "types",
+    "json-schema"
   ],
   "sideEffects": false,
   "publishConfig": {
@@ -39,18 +40,46 @@
         "default": "./dist/index.cjs"
       }
     },
+    "./zod": {
+      "import": {
+        "types": "./dist/zod.d.mts",
+        "default": "./dist/zod.mjs"
+      },
+      "require": {
+        "types": "./dist/zod.d.cts",
+        "default": "./dist/zod.cjs"
+      }
+    },
+    "./schema.json": "./schema/ralph.schema.json",
     "./package.json": "./package.json"
   },
   "files": [
-    "/dist"
+    "/dist",
+    "/schema"
   ],
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  },
   "scripts": {
-    "build": "tsdown",
-    "check": "tsc --noEmit",
-    "lint": "oxlint"
+    "generate": "tsx scripts/generate.ts",
+    "build": "pnpm generate && tsdown",
+    "check": "pnpm generate && tsc --noEmit",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
+    "json-schema-to-typescript": "catalog:",
     "tsdown": "catalog:",
-    "typescript": "catalog:"
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
   }
 }
