@@ -14,46 +14,48 @@ import { StringLookupTable, ViewportSizeLookupTable } from './lookup_table';
 import type { Columns, EventBatch, RalphEvent } from '@/events';
 import { MOUSE_GRID_PX, NO_TRACK_INDEX } from '@/events';
 
+type NavSource =
+  | { url: string; navParam?: never }
+  | { navParam: string; url?: never };
+
 /** A sample as the tracker observes it: full urls and sizes, not yet indices. */
 export type RawEvent =
   | { ty: 1; at: number; trackId: string }
-  | {
+  | ({
       ty: 4;
       at: number;
-      url: string;
       size: ViewportSize;
       px: number;
       py: number;
       trackId?: string;
       rx?: number;
       ry?: number;
-    }
-  | {
+    } & NavSource)
+  | ({
       ty: 5;
       at: number;
-      url: string;
       size: ViewportSize;
       sx: number;
       sy: number;
       count?: number;
-    }
+    } & NavSource)
   | { ty: 6; at: number }
   | { ty: 7; at: number }
-  | {
+  | ({
       ty: 8;
       at: number;
-      url: string;
       size: ViewportSize;
       px: number;
       py: number;
       count?: number;
-    };
+    } & NavSource);
 
 export type ViewportSize = [width: number, height: number];
 
 const MANDATORY_COLUMNS = ['dt', 'ty'] as const;
 const SPARSE_COLUMNS = [
   'u',
+  'a',
   's',
   'px',
   'py',
@@ -88,6 +90,7 @@ export type _SparseColumnsListed = Expect<
 
 export type LookupTables = {
   urls: string[];
+  appNavParams: string[];
   tracks: string[];
   sizes: ViewportSize[];
 };
@@ -104,7 +107,13 @@ export function aggregateRawEvents(
   // element" by construction rather than by a ±1 both decoders must remember.
   const tracks = new StringLookupTable('');
   const urls = new StringLookupTable();
+  const appNavParams = new StringLookupTable();
   const sizes = new ViewportSizeLookupTable();
+
+  const navIndexFor = (sample: NavSource): { u: number } | { a: number } =>
+    sample.url === undefined
+      ? { a: appNavParams.indexFor(sample.navParam) }
+      : { u: urls.indexFor(sample.url) };
 
   const t0 = raw.length > 0 ? raw[0]!.at : 0;
   let previous = t0;
@@ -130,7 +139,7 @@ export function aggregateRawEvents(
         return {
           dt,
           ty: 4,
-          u: urls.indexFor(sample.url),
+          ...navIndexFor(sample),
           s: sizes.indexFor(sample.size),
           px: sample.px,
           py: sample.py,
@@ -144,7 +153,7 @@ export function aggregateRawEvents(
         return {
           dt,
           ty: 5,
-          u: urls.indexFor(sample.url),
+          ...navIndexFor(sample),
           s: sizes.indexFor(sample.size),
           sx: sample.sx,
           sy: sample.sy,
@@ -161,7 +170,7 @@ export function aggregateRawEvents(
         return {
           dt,
           ty: 8,
-          u: urls.indexFor(sample.url),
+          ...navIndexFor(sample),
           s: sizes.indexFor(sample.size),
           px: sample.px,
           py: sample.py,
@@ -173,7 +182,12 @@ export function aggregateRawEvents(
   return {
     t0,
     events,
-    tables: { urls: urls.values, tracks: tracks.values, sizes: sizes.values },
+    tables: {
+      urls: urls.values,
+      appNavParams: appNavParams.values,
+      tracks: tracks.values,
+      sizes: sizes.values,
+    },
   };
 }
 
@@ -188,6 +202,9 @@ function runLength(count: number | undefined): { c?: number } {
   return count === undefined || count <= 1 ? {} : { c: count };
 }
 
+/** The two columns whose presence, not whose values, carries meaning. */
+const NAV_COLUMNS: ReadonlySet<string> = new Set(['u', 'a']);
+
 /** Flatten events into parallel columns. */
 export function transpose(events: readonly RalphEvent[]): Columns {
   const n = events.length;
@@ -196,10 +213,12 @@ export function transpose(events: readonly RalphEvent[]): Columns {
     cols[name] = new Array<number>(n).fill(0);
   }
 
+  const declared = new Set<string>();
   events.forEach((event, i) => {
     for (const [name, value] of Object.entries(event)) {
       if (typeof value === 'number') {
         cols[name]![i] = value;
+        declared.add(name);
       }
     }
   });
@@ -208,8 +227,17 @@ export function transpose(events: readonly RalphEvent[]): Columns {
   // column of `n` zeros, so an all-zero column is dropped. A session that never
   // scrolls horizontally carries no `sx`, a batch with no tracked clicks carries
   // no `tr`/`rx`/`ry`, and one where nothing folds carries no `c`.
+  //
+  // `u` and `a` drop on whether any event declared them instead, because 0 is a
+  // real index into `urls` and into `appNavParams` alike. An all-zero nav
+  // column is still what tells the decoder which of the two tables these events
+  // address, so dropping it would take that answer with it.
   for (const name of SPARSE_COLUMNS) {
-    if (cols[name]!.every((value) => value === 0)) {
+    const droppable = NAV_COLUMNS.has(name)
+      ? !declared.has(name)
+      : cols[name]!.every((value) => value === 0);
+
+    if (droppable) {
       delete cols[name];
     }
   }
@@ -224,12 +252,30 @@ export type BatchIdentity = {
   buildId?: string;
 };
 
+/** The SDK source whose navigation table discriminates the batch. */
+export enum BatchType {
+  NativeApp = 'nativeApp',
+  Web = 'web',
+}
+
 /** Build a complete batch from samples. */
 export function encodeBatch(
   identity: BatchIdentity,
   raw: readonly RawEvent[],
+  type: BatchType = BatchType.Web,
 ): EventBatch {
   const { t0, events, tables } = aggregateRawEvents(raw);
+  if (type === BatchType.NativeApp && tables.urls.length > 0) {
+    throw new Error('A native app batch cannot contain URL events');
+  }
+  if (type === BatchType.Web && tables.appNavParams.length > 0) {
+    throw new Error('A web batch cannot contain app navigation events');
+  }
+
+  const nav =
+    type === BatchType.NativeApp
+      ? { appNavParams: tables.appNavParams }
+      : { urls: tables.urls };
 
   return {
     v: 1,
@@ -237,7 +283,7 @@ export function encodeBatch(
     sessionId: identity.sessionId,
     ...(identity.buildId === undefined ? {} : { buildId: identity.buildId }),
     t0,
-    urls: tables.urls,
+    ...nav,
     tracks: tables.tracks,
     sizes: tables.sizes,
     // Explicit rather than inferred from `dt.length`, so a truncated or

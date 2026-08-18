@@ -94,6 +94,12 @@
           "ty"
         ],
         "properties": {
+          "a": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
           "c": {
             "type": "array",
             "items": {
@@ -188,19 +194,28 @@
       },
       "EventBatch": {
         "type": "object",
-        "description": "One flush from the browser SDK.\n\n`projectId` is deliberately absent: it is derived from the API key, so a\nclient cannot assert another tenant's project. `userId` necessarily *is*\nclient-asserted — there is no way around that for anonymous analytics, so it\nis mitigated with per-key rate limiting rather than pretended away.",
+        "description": "One flush from the browser SDK or the native app SDK.\n\n`projectId` is deliberately absent: it is derived from the API key, so a\nclient cannot assert another tenant's project. `userId` necessarily *is*\nclient-asserted — there is no way around that for anonymous analytics, so it\nis mitigated with per-key rate limiting rather than pretended away.",
         "required": [
           "v",
           "userId",
           "sessionId",
           "t0",
-          "urls",
           "tracks",
           "sizes",
           "n",
           "cols"
         ],
         "properties": {
+          "appNavParams": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Interned navigation params, from the native app SDK, which has no urls\nto intern. `cols.a` indexes this.\n\nExactly one of the two tables is present, and which one is what says\nwhether a batch's events address `u` or `a`. That is why neither is\nrejected rather than read as \"no pages\": an SDK that stopped sending\nits table would otherwise be indistinguishable from a flush that\nlegitimately references none, which is every session's last one."
+          },
           "buildId": {
             "type": [
               "string",
@@ -213,7 +228,7 @@
           "n": {
             "type": "integer",
             "format": "int32",
-            "description": "Event count. Explicit rather than inferred from `dt.length`, so a\ntruncated or mismatched body fails validation instead of decoding short.",
+            "description": "Event count. Explicit rather than inferred from `dt.length`, so a\ntruncated or mismatched body fails validation instead of decoding\nshort.",
             "minimum": 0
           },
           "sessionId": {
@@ -250,14 +265,17 @@
             "items": {
               "type": "string"
             },
-            "description": "Interned `data-track-id`s. `[0]` is reserved and always `\"\"`, so `tr` of\n`0` means \"no tracked element\" by construction and `tr` of `k` is plainly\n`tracks[k]`. Reserving a slot puts that in the data instead of making it a\n±1 both decoders have to remember — and an off-by-one here would\nmisattribute every click on whichever element interned first, silently,\nrather than crashing."
+            "description": "Interned `data-track-id`s. `[0]` is reserved and always `\"\"`, so `tr`\nof `0` means \"no tracked element\" by construction and `tr` of `k`\nis plainly `tracks[k]`. Reserving a slot puts that in the data\ninstead of making it a ±1 both decoders have to remember — and an\noff-by-one here would misattribute every click on whichever element\ninterned first, silently, rather than crashing."
           },
           "urls": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "type": "string"
             },
-            "description": "Interned absolute hrefs. `cols.u` indexes this."
+            "description": "Interned absolute hrefs, from the browser SDK. `cols.u` indexes this."
           },
           "userId": {
             "type": "string",
@@ -277,12 +295,14 @@
         "required": [
           "dt",
           "ty",
-          "u",
           "s",
           "px",
           "py"
         ],
         "properties": {
+          "a": {
+            "type": "integer"
+          },
           "c": {
             "type": "integer"
           },
@@ -314,12 +334,14 @@
         "required": [
           "dt",
           "ty",
-          "u",
           "s",
           "px",
           "py"
         ],
         "properties": {
+          "a": {
+            "type": "integer"
+          },
           "dt": {
             "type": "integer"
           },
@@ -357,12 +379,14 @@
         "required": [
           "dt",
           "ty",
-          "u",
           "s",
           "sx",
           "sy"
         ],
         "properties": {
+          "a": {
+            "type": "integer"
+          },
           "c": {
             "type": "integer"
           },

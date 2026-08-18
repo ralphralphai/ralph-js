@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BatchType,
   encodeBatch,
   type RawEvent,
   aggregateRawEvents,
@@ -20,6 +21,9 @@ const identity = {
 };
 
 const SIZE: [number, number] = [1280, 800];
+
+/** What a native app sends in place of a url, having none to intern. */
+const NAV_PARAM = '/checkout?step=payment';
 
 describe('lookup tables', () => {
   it('reserves tracks[0] as the empty string', () => {
@@ -42,6 +46,17 @@ describe('lookup tables', () => {
     expect(events.map((e) => 'u' in e && e.u)).toEqual([0, 0]);
   });
 
+  it('interns an app sample into appNavParams rather than urls', () => {
+    const { events, tables } = aggregateRawEvents([
+      { ty: 5, at: 0, navParam: NAV_PARAM, size: SIZE, sx: 0, sy: 0 },
+      { ty: 5, at: 250, navParam: NAV_PARAM, size: SIZE, sx: 0, sy: 120 },
+    ]);
+
+    expect(tables.appNavParams).toEqual([NAV_PARAM]);
+    expect(tables.urls).toEqual([]);
+    expect(events.map((e) => 'a' in e && e.a)).toEqual([0, 0]);
+  });
+
   it('delta-encodes timestamps against t0', () => {
     const { t0, events } = aggregateRawEvents([
       { ty: 6, at: 1_700_000_000_000 },
@@ -60,6 +75,14 @@ describe('presence rules', () => {
     ]);
 
     expect(events[0]).toEqual({ dt: 0, ty: 4, u: 0, s: 0, px: 10, py: 20 });
+  });
+
+  it('gives an app click an a and no u at all', () => {
+    const { events } = aggregateRawEvents([
+      { ty: 4, at: 0, navParam: NAV_PARAM, size: SIZE, px: 10, py: 20 },
+    ]);
+
+    expect(events[0]).toEqual({ dt: 0, ty: 4, a: 0, s: 0, px: 10, py: 20 });
   });
 
   it("keeps rx and ry of 0 on a click at a tracked element's corner", () => {
@@ -147,6 +170,32 @@ describe('transpose', () => {
     expect(cols.sy).toEqual([900]);
   });
 
+  it('keeps an all-zero u, since presence is what names the nav table', () => {
+    // The one column the all-zero rule does not reach. A single-page batch
+    // indexes `urls[0]` from every event, and dropping the column for being
+    // zero would leave nothing saying it was `urls` rather than
+    // `appNavParams` those events addressed.
+    const cols = transpose(
+      aggregateRawEvents([
+        { ty: 5, at: 0, url: 'https://e.com/', size: SIZE, sx: 0, sy: 900 },
+      ]).events,
+    );
+
+    expect(cols.u).toEqual([0]);
+    expect(cols).not.toHaveProperty('a');
+  });
+
+  it('keeps an all-zero a for the same reason', () => {
+    const cols = transpose(
+      aggregateRawEvents([
+        { ty: 5, at: 0, navParam: NAV_PARAM, size: SIZE, sx: 0, sy: 900 },
+      ]).events,
+    );
+
+    expect(cols.a).toEqual([0]);
+    expect(cols).not.toHaveProperty('u');
+  });
+
   it('leaves a dead slot as filler rather than borrowing a neighbour', () => {
     const cols = transpose(
       aggregateRawEvents([
@@ -206,12 +255,14 @@ describe('encodeBatch', () => {
     expect(batch.v).toBe(1);
     expect(batch.n).toBe(5);
     expect(batch.urls).toEqual(['https://e.com/']);
+    expect(batch).not.toHaveProperty('appNavParams');
     expect(batch.tracks).toEqual(['', 'cta.signup']);
 
-    // Three columns drop out. `sx` because the page never scrolls sideways, and
-    // `u` and `s` because a single-page batch has one url and one viewport, so
-    // every event's index is 0, which is indistinguishable from filler and
-    // therefore free.
+    // Two columns drop out. `sx` because the page never scrolls sideways, and
+    // `s` because a single-viewport batch indexes 0 from every event, which is
+    // indistinguishable from filler and therefore free. `u` is all zeros for
+    // that same reason and stays anyway, because it is what names the table
+    // those zeros index.
     expect(Object.keys(batch.cols).sort()).toEqual([
       'c',
       'dt',
@@ -222,7 +273,58 @@ describe('encodeBatch', () => {
       'sy',
       'tr',
       'ty',
+      'u',
     ]);
+  });
+
+  it('sends appNavParams in place of urls for an app batch', () => {
+    const batch = encodeBatch(
+      identity,
+      [
+        { ty: 6, at: 0 },
+        { ty: 5, at: 250, navParam: NAV_PARAM, size: SIZE, sx: 0, sy: 0 },
+        { ty: 7, at: 500 },
+      ],
+      BatchType.NativeApp,
+    );
+
+    expect(batch.appNavParams).toEqual([NAV_PARAM]);
+    expect(batch).not.toHaveProperty('urls');
+
+    // The dead slots either side of the page view are filler, as they are in
+    // any other column, so `a` is all zeros and travels regardless.
+    expect(Object.keys(batch.cols).sort()).toEqual(['a', 'dt', 'ty']);
+    expect(batch.cols.a).toEqual([0, 0, 0]);
+  });
+
+  it('keeps the native app discriminator on a flush without navigation', () => {
+    const batch = encodeBatch(
+      identity,
+      [{ ty: 7, at: 500 }],
+      BatchType.NativeApp,
+    );
+
+    expect(batch.appNavParams).toEqual([]);
+    expect(batch).not.toHaveProperty('urls');
+  });
+
+  it('rejects navigation events from a different batch type', () => {
+    expect(() =>
+      encodeBatch(
+        identity,
+        [
+          {
+            ty: 5,
+            at: 0,
+            navParam: NAV_PARAM,
+            size: SIZE,
+            sx: 0,
+            sy: 0,
+          },
+        ],
+        BatchType.Web,
+      ),
+    ).toThrow('A web batch cannot contain app navigation events');
   });
 
   it('reports n explicitly rather than leaving it to be inferred', () => {
@@ -240,7 +342,11 @@ describe('encodeBatch', () => {
 
     expect(batch.n).toBe(0);
     expect(batch.cols.dt).toEqual([]);
-    expect(batch.urls).toEqual([]);
     expect(batch.tracks).toEqual(['']);
+
+    // The optional batch type defaults to web, so a batch that referenced no
+    // page still carries the browser discriminator.
+    expect(batch.urls).toEqual([]);
+    expect(batch).not.toHaveProperty('appNavParams');
   });
 });
