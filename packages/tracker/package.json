@@ -1,6 +1,6 @@
 {
   "name": "@ralphralphai/tracker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Browser SDK for Ralph. Records data-track-id clicks, page views and pointer position, and streams them as compressed columnar batches.",
   "license": "Apache-2.0",
   "author": "RalphRalph AI",
