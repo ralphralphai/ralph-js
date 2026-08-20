@@ -15,6 +15,7 @@
 export type {
   Condition,
   DataFollowIgnoreRule,
+  HostOverrideRule,
   QueryParamCondition,
   ScreenSize,
   UrlNormalizeRule,

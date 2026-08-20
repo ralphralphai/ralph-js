@@ -13,6 +13,13 @@
         "type": "string"
       }
     },
+    "hostOverrides": {
+      "description": "Host rewrites applied when the Web navigation graph is built, for when the crawl and the tracker run on different hosts: the crawler visits `dev.web.halfmore.co`, the tracker reports from `halfmore.co`, and the graph has to record the host the tracker reports for the two to join. The first rule whose matcher matches wins and the rest are skipped, so a rewritten host is never rewritten again. The crawl itself is untouched - only the host the graph records changes.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/HostOverrideRule"
+      }
+    },
     "urlAnalysisNormalizeRules": {
       "description": "Normalize rules to apply to the URLs for the data aggregation, in order. E.g. user identifying query params to the URL should be irrelevant for the analysis.",
       "type": "array",
@@ -55,26 +62,35 @@
   "additionalProperties": false,
   "description": "The crawl configuration a `ralph.jsonc` declares.",
   "definitions": {
-    "UrlNormalizeRule": {
+    "HostOverrideRule": {
       "type": "object",
       "properties": {
         "matcher": {
           "$ref": "#/definitions/UrlRuleMatcher"
         },
-        "transform": {
-          "$ref": "#/definitions/UrlTransformRule"
+        "updatedHost": {
+          "type": "string",
+          "description": "The host to record instead, e.g. `halfmore.co`. It replaces the host whole, so carry the port when the graph should have one."
         }
       },
       "required": [
         "matcher",
-        "transform"
+        "updatedHost"
       ],
       "additionalProperties": false,
-      "description": "A transform to apply to the URLs a matcher matches."
+      "description": "The host the graph records for the URLs a matcher matches, in place of the one the crawler visited."
     },
     "UrlRuleMatcher": {
       "type": "object",
       "properties": {
+        "host": {
+          "description": "Matched against the URL host, e.g. `dev.web.halfmore.co`, or `localhost:3000` when the URL carries a port.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Condition"
+            }
+          ]
+        },
         "path": {
           "description": "Matched against the URL path, e.g. `/product/42`.",
           "allOf": [
@@ -92,7 +108,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Which URLs a rule applies to. Both fields have to match; an empty matcher matches all."
+      "description": "Which URLs a rule applies to. Every field given has to match; an empty matcher matches all."
     },
     "Condition": {
       "description": "How a string is tested. A bare string - or a list of them, any of which may match - is an exact match; `exact` / `prefix` / `suffix` / `contains` / `regex` / `isSet` name another test; `any` / `all` / `not` combine them.",
@@ -349,6 +365,23 @@
           "additionalProperties": false
         }
       ]
+    },
+    "UrlNormalizeRule": {
+      "type": "object",
+      "properties": {
+        "matcher": {
+          "$ref": "#/definitions/UrlRuleMatcher"
+        },
+        "transform": {
+          "$ref": "#/definitions/UrlTransformRule"
+        }
+      },
+      "required": [
+        "matcher",
+        "transform"
+      ],
+      "additionalProperties": false,
+      "description": "A transform to apply to the URLs a matcher matches."
     },
     "UrlTransformRule": {
       "type": "object",

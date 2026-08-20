@@ -10,6 +10,7 @@
 
 export { ConditionSchema } from '@/condition';
 export { DataFollowIgnoreRuleSchema } from '@/data_follow_ignore';
+export { HostOverrideRuleSchema } from '@/host_override';
 export { QueryParamConditionSchema } from '@/query_param';
 export { WebRalphConfigSchema } from '@/ralph';
 export { ScreenSizeSchema } from '@/screen_size';

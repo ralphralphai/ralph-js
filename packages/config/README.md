@@ -81,6 +81,18 @@ Anything else is named by its only key:
 }
 ```
 
+`host` and `path` both take one, so a rule can be scoped to a subdomain:
+
+```jsonc
+"matcher": {
+  "host": { "suffix": ".halfmore.co" },
+  "path": { "prefix": "/product/" }
+}
+```
+
+The host is matched as the URL carries it, port included — `halfmore.co`, or
+`localhost:3000`.
+
 ### Matching query params
 
 `queryParams` evaluates the condition on the (key, value) pairs.
@@ -113,6 +125,37 @@ Anything else is named by its only key:
 The edits apply in order. `set` rewrites the value of every param whose key
 matches. `removeOtherQueryParams` drops everything the list did
 not touch when specified.
+
+### Overriding the host in the graph
+
+When the crawl and the tracker run on different hosts, the graph records a URL
+the tracker never reports and the two never join. `hostOverrides` rewrites the
+host as the graph is built:
+
+```jsonc
+{
+  "urlsToCrawl": ["https://dev.web.halfmore.co"],
+
+  // Crawl dev, record production.
+  "hostOverrides": [
+    {
+      "matcher": { "host": "dev.web.halfmore.co" },
+      "updatedHost": "halfmore.co"
+    },
+    {
+      "matcher": { "host": { "prefix": "dev.api." } },
+      "updatedHost": "api.halfmore.co"
+    }
+  ]
+}
+```
+
+The first rule whose matcher matches wins and the rest are skipped, so a host a
+rule rewrote is never rewritten again by a later one. The matcher is the same
+one every other rule takes, so `path` and `queryParams` can narrow it further.
+
+This changes only the host the graph records. The crawler still visits the host
+it was pointed at — put a rule in `urlCrawlNormalizeRules` to change that.
 
 ## Validating at runtime
 

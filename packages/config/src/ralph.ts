@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { DataFollowIgnoreRuleSchema } from '@/data_follow_ignore';
+import { HostOverrideRuleSchema } from '@/host_override';
 import { ScreenSizeSchema } from '@/screen_size';
 import { UrlNormalizeRuleSchema } from '@/url_normalize';
 import { VariantRuleSchema } from '@/variants';
@@ -20,6 +21,12 @@ export const WebRalphConfigSchema = z
       .optional()
       .describe(
         'List of URLs to initiate the crawl. Should be accessible from the crawler.',
+      ),
+
+    hostOverrides: HostOverrideRuleSchema.array()
+      .optional()
+      .describe(
+        'Host rewrites applied when the Web navigation graph is built, for when the crawl and the tracker run on different hosts: the crawler visits `dev.web.halfmore.co`, the tracker reports from `halfmore.co`, and the graph has to record the host the tracker reports for the two to join. The first rule whose matcher matches wins and the rest are skipped, so a rewritten host is never rewritten again. The crawl itself is untouched - only the host the graph records changes.',
       ),
 
     urlAnalysisNormalizeRules: UrlNormalizeRuleSchema.array()

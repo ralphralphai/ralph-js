@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ConditionSchema } from '@/condition';
+import { HostOverrideRuleSchema } from '@/host_override';
 import type { WebRalphConfig } from '@/index';
 import { QueryParamConditionSchema } from '@/query_param';
 import { WebRalphConfigSchema } from '@/ralph';
@@ -14,6 +15,12 @@ describe('WebRalphConfigSchema', () => {
     const config: WebRalphConfig = {
       urlsToCrawl: ['https://example.com'],
       screenSizes: [{ width: 1280, height: 720 }],
+      hostOverrides: [
+        {
+          matcher: { host: 'dev.web.example.com' },
+          updatedHost: 'example.com',
+        },
+      ],
       urlAnalysisNormalizeRules: [
         {
           matcher: { path: { prefix: '/product/' } },
@@ -148,5 +155,107 @@ describe('QueryParamConditionSchema', () => {
     ['an empty object', {}],
   ])('rejects %s', (_label, condition) => {
     expect(QueryParamConditionSchema.safeParse(condition).success).toBe(false);
+  });
+});
+
+describe('hostOverrides', () => {
+  // The case it exists for: the crawler visits the dev host, the tracker
+  // reports from the production one, and the graph has to record the latter
+  // for the two to join.
+  it('parses the dev-host-to-production-host rewrite', () => {
+    const result = WebRalphConfigSchema.safeParse({
+      screenSizes: [],
+      urlsToCrawl: ['https://dev.web.halfmore.co'],
+      hostOverrides: [
+        {
+          matcher: { host: 'dev.web.halfmore.co' },
+          updatedHost: 'halfmore.co',
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a config that declares none', () => {
+    expect(WebRalphConfigSchema.safeParse({ screenSizes: [] }).success).toBe(
+      true,
+    );
+  });
+
+  it('names the offending path when a rule is misspelled', () => {
+    const result = WebRalphConfigSchema.safeParse({
+      screenSizes: [],
+      hostOverrides: [{ matcher: {}, updatedhost: 'halfmore.co' }],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain(
+      'hostOverrides.0',
+    );
+  });
+});
+
+describe('HostOverrideRuleSchema', () => {
+  it.each([
+    ['an exact host', { host: 'dev.web.halfmore.co' }],
+    ['a host carrying a port', { host: 'localhost:3000' }],
+    [
+      'a list of hosts',
+      { host: ['dev.web.halfmore.co', 'staging.halfmore.co'] },
+    ],
+    ['a host condition', { host: { prefix: 'dev.' } }],
+    [
+      'a regex over hosts',
+      { host: { regex: '^dev\\.[a-z]+\\.halfmore\\.co$' } },
+    ],
+    ['an empty matcher, meaning every crawled URL', {}],
+    [
+      'a host narrowed by path',
+      { host: { suffix: '.halfmore.co' }, path: { prefix: '/product/' } },
+    ],
+    [
+      'a host narrowed by query params',
+      { host: 'dev.web.halfmore.co', queryParams: { key: 'preview' } },
+    ],
+  ])('parses a rule matching %s', (_label, matcher) => {
+    expect(
+      HostOverrideRuleSchema.safeParse({ matcher, updatedHost: 'halfmore.co' })
+        .success,
+    ).toBe(true);
+  });
+
+  it.each([
+    ['no updatedHost', { matcher: { host: 'dev.halfmore.co' } }],
+    ['no matcher', { updatedHost: 'halfmore.co' }],
+    [
+      'a transform borrowed from a normalize rule',
+      { matcher: {}, transform: { updatedPath: '/' } },
+    ],
+    [
+      'a misspelled matcher field',
+      { matcher: { hostt: 'dev.halfmore.co' }, updatedHost: 'halfmore.co' },
+    ],
+    ['a non-string updatedHost', { matcher: {}, updatedHost: ['halfmore.co'] }],
+  ])('rejects a rule with %s', (_label, rule) => {
+    expect(HostOverrideRuleSchema.safeParse(rule).success).toBe(false);
+  });
+});
+
+describe('UrlRuleMatcher host', () => {
+  // `host` lands on the shared matcher, so every rule list can scope to a
+  // subdomain, not just `hostOverrides`.
+  it('scopes a normalize rule to one host', () => {
+    const result = WebRalphConfigSchema.safeParse({
+      screenSizes: [],
+      urlAnalysisNormalizeRules: [
+        {
+          matcher: { host: 'halfmore.co', path: { prefix: '/product/' } },
+          transform: { updatedPath: '/product/:id' },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
   });
 });

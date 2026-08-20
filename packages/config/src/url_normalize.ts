@@ -5,6 +5,9 @@ import { QueryParamConditionSchema } from '@/query_param';
 
 export const UrlRuleMatcherSchema = z
   .strictObject({
+    host: ConditionSchema.optional().describe(
+      'Matched against the URL host, e.g. `dev.web.halfmore.co`, or `localhost:3000` when the URL carries a port.',
+    ),
     path: ConditionSchema.optional().describe(
       'Matched against the URL path, e.g. `/product/42`.',
     ),
@@ -13,7 +16,7 @@ export const UrlRuleMatcherSchema = z
   .meta({
     id: 'UrlRuleMatcher',
     description:
-      'Which URLs a rule applies to. Both fields have to match; an empty matcher matches all.',
+      'Which URLs a rule applies to. Every field given has to match; an empty matcher matches all.',
   });
 
 export const UrlTransformRuleSchema = z
