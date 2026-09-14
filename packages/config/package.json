@@ -1,6 +1,6 @@
 {
   "name": "@ralphralphai/config",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "The configuration contract for Ralph: the rule types a ralph.jsonc declares, its JSON Schema, and the zod schemas both are generated from.",
   "license": "Apache-2.0",
   "author": "RalphRalph AI",
