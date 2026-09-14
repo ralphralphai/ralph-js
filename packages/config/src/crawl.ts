@@ -27,6 +27,13 @@ export const CrawlStepSchema = z
       body: z.record(z.string(), z.string()),
       saveAs: z.string().min(1).describe('Variable name for the response.'),
     }),
+    z.strictObject({
+      visitFollowIdsAtSelector: z
+        .string()
+        .describe(
+          'Visit all follow ids that are in the specific selector. This action should be the last action when specified',
+        ),
+    }),
   ])
   .meta({
     id: 'CrawlStep',

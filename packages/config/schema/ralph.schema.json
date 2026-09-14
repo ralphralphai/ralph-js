@@ -617,6 +617,19 @@
             "saveAs"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "visitFollowIdsAtSelector": {
+              "type": "string",
+              "description": "Visit all follow ids that are in the specific selector. This action should be the last action when specified"
+            }
+          },
+          "required": [
+            "visitFollowIdsAtSelector"
+          ],
+          "additionalProperties": false
         }
       ],
       "description": "One crawl operation. Specify exactly one operation per step."

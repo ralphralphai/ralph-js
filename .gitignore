@@ -11,3 +11,5 @@ packages/schema/src/generated/
 
 # Generated from the zod schemas by `@ralphralphai/config`'s build.
 packages/config/src/generated/
+
+.pnpm-store/
