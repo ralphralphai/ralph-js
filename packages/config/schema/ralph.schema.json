@@ -27,6 +27,13 @@
         "$ref": "#/definitions/UrlNormalizeRule"
       }
     },
+    "crawlRules": {
+      "description": "Crawl scenarios and reusable sequences for matching URLs.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/CrawlRule"
+      }
+    },
     "urlCrawlNormalizeRules": {
       "description": "Normalize rules to apply to the URLs for the crawl, in order. Applied as the crawler visits a matching URL, which dedupes the URLs when building the Web navigation graph.",
       "type": "array",
@@ -433,6 +440,186 @@
       },
       "additionalProperties": false,
       "description": "What to rewrite on a URL the matcher matched."
+    },
+    "CrawlRule": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "$ref": "#/definitions/UrlRuleMatcher"
+        },
+        "scenarios": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CrawlScenario"
+          }
+        },
+        "sequences": {
+          "description": "Named step sequences referenced by a run step.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CrawlSequence"
+          }
+        }
+      },
+      "required": [
+        "at"
+      ],
+      "additionalProperties": false,
+      "description": "Crawl scenarios and reusable sequences for matching URLs."
+    },
+    "CrawlScenario": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CrawlStep"
+          },
+          "description": "Steps to execute in order."
+        }
+      },
+      "required": [
+        "steps"
+      ],
+      "additionalProperties": false
+    },
+    "CrawlStep": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "run": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Name of a reusable sequence to run."
+            }
+          },
+          "required": [
+            "run"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "click": {
+              "$ref": "#/definitions/Condition"
+            }
+          },
+          "required": [
+            "click"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "fill": {
+              "$ref": "#/definitions/Condition"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "var": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "var"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "required": [
+            "fill",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "waitFor": {
+              "$ref": "#/definitions/Condition"
+            },
+            "expectedValue": {
+              "$ref": "#/definitions/Condition"
+            },
+            "timeoutMs": {
+              "default": 3000,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "waitFor",
+            "expectedValue"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "fetchUrl": {
+              "type": "string"
+            },
+            "body": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "saveAs": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Variable name for the response."
+            }
+          },
+          "required": [
+            "fetchUrl",
+            "body",
+            "saveAs"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "One crawl operation. Specify exactly one operation per step."
+    },
+    "CrawlSequence": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CrawlStep"
+          },
+          "description": "Steps to execute in order."
+        }
+      },
+      "required": [
+        "name",
+        "steps"
+      ],
+      "additionalProperties": false
     },
     "VariantRule": {
       "type": "object",

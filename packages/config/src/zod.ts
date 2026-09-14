@@ -9,6 +9,12 @@
 // value that parses here satisfies `WebRalphConfig` by construction.
 
 export { ConditionSchema } from '@/condition';
+export {
+  CrawlRuleSchema,
+  CrawlScenarioSchema,
+  CrawlSequenceSchema,
+  CrawlStepSchema,
+} from '@/crawl';
 export { DataFollowIgnoreRuleSchema } from '@/data_follow_ignore';
 export { HostOverrideRuleSchema } from '@/host_override';
 export { QueryParamConditionSchema } from '@/query_param';

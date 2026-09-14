@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { CrawlRuleSchema } from '@/crawl';
 import { DataFollowIgnoreRuleSchema } from '@/data_follow_ignore';
 import { HostOverrideRuleSchema } from '@/host_override';
 import { ScreenSizeSchema } from '@/screen_size';
@@ -34,6 +35,10 @@ export const WebRalphConfigSchema = z
       .describe(
         'Normalize rules to apply to the URLs for the data aggregation, in order. E.g. user identifying query params to the URL should be irrelevant for the analysis.',
       ),
+
+    crawlRules: CrawlRuleSchema.array()
+      .optional()
+      .describe('Crawl scenarios and reusable sequences for matching URLs.'),
 
     urlCrawlNormalizeRules: UrlNormalizeRuleSchema.array()
       .optional()

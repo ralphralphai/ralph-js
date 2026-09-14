@@ -157,6 +157,49 @@ one every other rule takes, so `path` and `queryParams` can narrow it further.
 This changes only the host the graph records. The crawler still visits the host
 it was pointed at — put a rule in `urlCrawlNormalizeRules` to change that.
 
+## Declaring crawl scenarios
+
+`crawlRules` is a list of rules. Each rule keeps its URL matcher in `at`,
+its named scenarios in `scenarios`, and reusable step sequences in `sequences`.
+A scenario or sequence holds an ordered `steps` array.
+
+```jsonc
+{
+  "screenSizes": [{ "width": 1280, "height": 720 }],
+  "crawlRules": [
+    {
+      "at": { "path": "/login" },
+      "sequences": [
+        { "name": "submit", "steps": [{ "click": "submit" }] }
+      ],
+      "scenarios": [
+        {
+          "name": "Sign in",
+          "steps": [
+            { "fill": "email", "value": { "var": "email" } },
+            { "run": "submit" },
+            { "waitFor": "status", "expectedValue": "ready", "timeoutMs": 5000 }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Each step specifies exactly one operation: `click`, `fill`, `waitFor`, `run`,
+or `fetchUrl`. No separate `action` field is needed. `fill` accepts a literal
+string or a variable reference such as `{ "var": "email" }`. `fetchUrl` takes
+`body` and `saveAs`, which names the response variable. A wait defaults to
+3000 milliseconds; explicit timeouts must be nonnegative integers.
+Unknown fields and mixed operations are rejected.
+
+This package defines the configuration shape; it does not execute a crawl.
+Element conditions retain the existing `Condition` shape. The crawl engine
+must define what element property they match, what `expectedValue` observes,
+scenario isolation, sequence and variable scope, and HTTP request behavior.
+Reference existence and sequence cycles are not checked by these schemas.
+
 ## Validating at runtime
 
 For code that reads a config rather than writes one. `zod` is an optional peer

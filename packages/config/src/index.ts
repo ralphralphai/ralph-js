@@ -14,6 +14,10 @@
 
 export type {
   Condition,
+  CrawlRule,
+  CrawlScenario,
+  CrawlSequence,
+  CrawlStep,
   DataFollowIgnoreRule,
   HostOverrideRule,
   QueryParamCondition,
