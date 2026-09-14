@@ -8,26 +8,35 @@ describe('crawl rules', () => {
   it('parses shorthand steps through the public config contract', () => {
     const config: WebRalphConfig = {
       screenSizes: [],
-      crawlRules: [
-        {
-          at: { path: '/login' },
-          sequences: [{ name: 'submit', steps: [{ click: 'submit' }] }],
-          scenarios: [
-            {
-              name: 'Sign in',
-              steps: [
-                { fill: 'email', value: { var: 'email' } },
-                { fill: 'password', value: 'example' },
-                { run: 'submit' },
-                { waitFor: 'status', expectedValue: 'ready', timeoutMs: 5000 },
-                { fetchUrl: '/session', body: {}, saveAs: 'session' },
-              ],
-            },
-          ],
-        },
-      ],
+      crawlRules: {
+        sequences: [{ name: 'submit', steps: [{ click: 'submit' }] }],
+        rules: [
+          {
+            at: { path: '/login' },
+            scenarios: [
+              {
+                name: 'Sign in',
+                steps: [
+                  { fill: 'email', value: { var: 'email' } },
+                  { fill: 'password', value: 'example' },
+                  { run: 'submit' },
+                  {
+                    waitFor: 'status',
+                    expectedValue: 'ready',
+                    timeoutMs: 5000,
+                  },
+                  { fetchUrl: '/session', body: {}, saveAs: 'session' },
+                ],
+              },
+            ],
+          },
+        ],
+      },
     };
-    expect(WebRalphConfigSchema.parse(config)).toEqual(config);
+    expect(WebRalphConfigSchema.parse(config)).toEqual({
+      ...config,
+      crawlRules: { ...config.crawlRules, visitDataFollowByDefault: true },
+    });
   });
 
   it.each([
@@ -42,8 +51,12 @@ describe('crawl rules', () => {
   it('rejects misspelled optional rule fields instead of discarding scenarios', () => {
     expect(
       CrawlRuleSchema.safeParse({
-        at: {},
-        scenario: [{ steps: [{ click: 'submit' }] }],
+        rules: [
+          {
+            at: {},
+            scenario: [{ steps: [{ click: 'submit' }] }],
+          },
+        ],
       }).success,
     ).toBe(false);
   });

@@ -28,11 +28,11 @@
       }
     },
     "crawlRules": {
-      "description": "Crawl scenarios and reusable sequences for matching URLs.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/CrawlRule"
-      }
+      "allOf": [
+        {
+          "$ref": "#/definitions/CrawlRule"
+        }
+      ]
     },
     "urlCrawlNormalizeRules": {
       "description": "Normalize rules to apply to the URLs for the crawl, in order. Applied as the crawler visits a matching URL, which dedupes the URLs when building the Web navigation graph.",
@@ -444,25 +444,46 @@
     "CrawlRule": {
       "type": "object",
       "properties": {
-        "at": {
-          "$ref": "#/definitions/UrlRuleMatcher"
-        },
-        "scenarios": {
+        "rules": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/CrawlScenario"
+            "type": "object",
+            "properties": {
+              "at": {
+                "$ref": "#/definitions/UrlRuleMatcher"
+              },
+              "scenarios": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/CrawlScenario"
+                }
+              },
+              "visitDataFollow": {
+                "description": "Whether to follow buttons annotated with data-follow-id. When not specified, it uses the visitDataFollowByDefault by default",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "at"
+            ],
+            "additionalProperties": false
           }
         },
         "sequences": {
-          "description": "Named step sequences referenced by a run step.",
+          "description": "Named step sequences referenced by a step in the scenario",
           "type": "array",
           "items": {
             "$ref": "#/definitions/CrawlSequence"
           }
+        },
+        "visitDataFollowByDefault": {
+          "default": true,
+          "description": "Whether to follow buttons annotated with data-follow-id by default",
+          "type": "boolean"
         }
       },
       "required": [
-        "at"
+        "rules"
       ],
       "additionalProperties": false,
       "description": "Crawl scenarios and reusable sequences for matching URLs."

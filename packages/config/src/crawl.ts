@@ -49,11 +49,28 @@ export const CrawlSequenceSchema = z
 
 export const CrawlRuleSchema = z
   .strictObject({
-    at: UrlRuleMatcherSchema,
-    scenarios: CrawlScenarioSchema.array().optional(),
+    rules: z
+      .strictObject({
+        at: UrlRuleMatcherSchema,
+        scenarios: CrawlScenarioSchema.array().optional(),
+        visitDataFollow: z
+          .boolean()
+          .optional()
+          .describe(
+            'Whether to follow buttons annotated with data-follow-id. When not specified, it uses the visitDataFollowByDefault by default',
+          ),
+      })
+      .array(),
     sequences: CrawlSequenceSchema.array()
       .optional()
-      .describe('Named step sequences referenced by a run step.'),
+      .describe('Named step sequences referenced by a step in the scenario'),
+    visitDataFollowByDefault: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe(
+        'Whether to follow buttons annotated with data-follow-id by default',
+      ),
   })
   .meta({
     id: 'CrawlRule',

@@ -36,9 +36,9 @@ export const WebRalphConfigSchema = z
         'Normalize rules to apply to the URLs for the data aggregation, in order. E.g. user identifying query params to the URL should be irrelevant for the analysis.',
       ),
 
-    crawlRules: CrawlRuleSchema.array()
-      .optional()
-      .describe('Crawl scenarios and reusable sequences for matching URLs.'),
+    crawlRules: CrawlRuleSchema.optional().describe(
+      'Crawl scenarios and reusable sequences for matching URLs.',
+    ),
 
     urlCrawlNormalizeRules: UrlNormalizeRuleSchema.array()
       .optional()
