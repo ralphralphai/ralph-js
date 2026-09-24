@@ -13,7 +13,9 @@ describe('WebRalphConfigSchema', () => {
   // type drifts, and fails to parse if the schema does.
   it('parses a value that satisfies the published WebRalphConfig type', () => {
     const config: WebRalphConfig = {
-      urlsToCrawl: ['https://example.com'],
+      simpleUrlCrawlRules: [
+        { scenario: { name: 'Home', startUrl: 'https://example.com' } },
+      ],
       screenSizes: [{ width: 1280, height: 720 }],
       hostOverrides: [
         {
@@ -62,7 +64,7 @@ describe('WebRalphConfigSchema', () => {
 
   it('rejects a misspelled top-level field', () => {
     expect(
-      WebRalphConfigSchema.safeParse({ screenSizes: [], urlsToCrwal: [] })
+      WebRalphConfigSchema.safeParse({ screenSizes: [], urlsToCrawl: [] })
         .success,
     ).toBe(false);
   });
@@ -165,7 +167,9 @@ describe('hostOverrides', () => {
   it('parses the dev-host-to-production-host rewrite', () => {
     const result = WebRalphConfigSchema.safeParse({
       screenSizes: [],
-      urlsToCrawl: ['https://dev.web.halfmore.co'],
+      simpleUrlCrawlRules: [
+        { scenario: { startUrl: 'https://dev.web.halfmore.co' } },
+      ],
       hostOverrides: [
         {
           matcher: { host: 'dev.web.halfmore.co' },

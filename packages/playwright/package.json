@@ -1,0 +1,74 @@
+{
+  "name": "@ralphralphai/playwright",
+  "version": "0.1.0",
+  "description": "Opt-in Playwright fixtures that capture page screenshots and tracked-element geometry for Ralph.",
+  "license": "Apache-2.0",
+  "author": "RalphRalph AI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ralphralphai/ralph-js.git",
+    "directory": "packages/playwright"
+  },
+  "homepage": "https://github.com/ralphralphai/ralph-js/tree/main/packages/playwright#readme",
+  "bugs": {
+    "url": "https://github.com/ralphralphai/ralph-js/issues"
+  },
+  "keywords": [
+    "ralph",
+    "playwright",
+    "screenshots",
+    "analytics"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "/dist"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "check": "tsc --noEmit",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test:browser": "pnpm build && vitest run --config vitest.browser.config.ts"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.62.1 <2"
+  },
+  "dependencies": {
+    "@ralphralphai/config": "workspace:^",
+    "jsonc-parser": "3.3.1",
+    "tar-stream": "3.2.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "catalog:",
+    "@types/tar-stream": "3.1.4",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "type": "module"
+}

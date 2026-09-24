@@ -10,3 +10,4 @@ heatmaps.
 | ------------------------------------------- | --------------------------------------------------------------------------- |
 | [`@ralphralphai/tracker`](packages/tracker) | The browser SDK. React components plus the batching tracker.                |
 | [`@ralphralphai/config`](packages/config)   | The rule types a `ralph.jsonc` declares, plus its JSON Schema.              |
+| [`@ralphralphai/playwright`](packages/playwright) | Opt-in Playwright capture of screenshots, URLs, and tracked-element geometry. |

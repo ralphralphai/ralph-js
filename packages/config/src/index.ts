@@ -14,14 +14,12 @@
 
 export type {
   Condition,
-  CrawlRule,
-  CrawlScenario,
-  CrawlSequence,
-  CrawlStep,
   DataFollowIgnoreRule,
   HostOverrideRule,
   QueryParamCondition,
   ScreenSize,
+  SimpleUrlCrawlRule,
+  SimpleUrlCrawlScenario,
   UrlNormalizeRule,
   UrlRuleMatcher,
   UrlTransformRule,

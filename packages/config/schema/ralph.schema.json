@@ -6,11 +6,11 @@
       "description": "Pointer to this JSON Schema, so an editor completes and validates the file.",
       "type": "string"
     },
-    "urlsToCrawl": {
-      "description": "List of URLs to initiate the crawl. Should be accessible from the crawler.",
+    "simpleUrlCrawlRules": {
+      "description": "URLs to crawl without scripted steps, each with its own normalize rules. Flows that need interaction are captured by Playwright tests instead.",
       "type": "array",
       "items": {
-        "type": "string"
+        "$ref": "#/definitions/SimpleUrlCrawlRule"
       }
     },
     "hostOverrides": {
@@ -27,32 +27,11 @@
         "$ref": "#/definitions/UrlNormalizeRule"
       }
     },
-    "crawlRules": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/CrawlRule"
-        }
-      ]
-    },
-    "urlCrawlNormalizeRules": {
-      "description": "Normalize rules to apply to the URLs for the crawl, in order. Applied as the crawler visits a matching URL, which dedupes the URLs when building the Web navigation graph.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/UrlNormalizeRule"
-      }
-    },
     "variantRules": {
       "description": "Variant rules to apply to the specific URL. E.g. when A/B testing multiple versions of the same page, the variant rules identify the versions so they can be aggregated.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/VariantRule"
-      }
-    },
-    "dataFollowIgnoreRules": {
-      "description": "Follow ids to skip on matched URLs, so the crawler doesn't keep re-visiting nav-bar/footer links that appear on every page.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/DataFollowIgnoreRule"
       }
     },
     "screenSizes": {
@@ -69,23 +48,69 @@
   "additionalProperties": false,
   "description": "The crawl configuration a `ralph.jsonc` declares.",
   "definitions": {
-    "HostOverrideRule": {
+    "SimpleUrlCrawlRule": {
+      "type": "object",
+      "properties": {
+        "scenario": {
+          "$ref": "#/definitions/SimpleUrlCrawlScenario"
+        }
+      },
+      "required": [
+        "scenario"
+      ],
+      "additionalProperties": false,
+      "description": "A crawl that starts from one URL and follows links, without scripted steps. Use Playwright tests for flows that need interaction."
+    },
+    "SimpleUrlCrawlScenario": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "A label for the scenario, e.g. `Product listing`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "startUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "The URL the crawl starts from. Should be accessible from the crawler."
+        },
+        "urlNormalizeRules": {
+          "description": "Normalize rules to apply, in order, to the URLs this scenario visits. Dedupes the URLs when building the Web navigation graph.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UrlNormalizeRule"
+          }
+        },
+        "dataFollowIgnoreRules": {
+          "description": "Follow ids to skip on matched URLs, so the crawler doesn't keep re-visiting nav-bar/footer links that appear on every page.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DataFollowIgnoreRule"
+          }
+        }
+      },
+      "required": [
+        "startUrl"
+      ],
+      "additionalProperties": false,
+      "description": "One URL to start crawling from, how to normalize the URLs it reaches, and which follow ids to skip."
+    },
+    "UrlNormalizeRule": {
       "type": "object",
       "properties": {
         "matcher": {
           "$ref": "#/definitions/UrlRuleMatcher"
         },
-        "updatedHost": {
-          "type": "string",
-          "description": "The host to record instead, e.g. `halfmore.co`. It replaces the host whole, so carry the port when the graph should have one."
+        "transform": {
+          "$ref": "#/definitions/UrlTransformRule"
         }
       },
       "required": [
         "matcher",
-        "updatedHost"
+        "transform"
       ],
       "additionalProperties": false,
-      "description": "The host the graph records for the URLs a matcher matches, in place of the one the crawler visited."
+      "description": "A transform to apply to the URLs a matcher matches."
     },
     "UrlRuleMatcher": {
       "type": "object",
@@ -373,23 +398,6 @@
         }
       ]
     },
-    "UrlNormalizeRule": {
-      "type": "object",
-      "properties": {
-        "matcher": {
-          "$ref": "#/definitions/UrlRuleMatcher"
-        },
-        "transform": {
-          "$ref": "#/definitions/UrlTransformRule"
-        }
-      },
-      "required": [
-        "matcher",
-        "transform"
-      ],
-      "additionalProperties": false,
-      "description": "A transform to apply to the URLs a matcher matches."
-    },
     "UrlTransformRule": {
       "type": "object",
       "properties": {
@@ -441,219 +449,40 @@
       "additionalProperties": false,
       "description": "What to rewrite on a URL the matcher matched."
     },
-    "CrawlRule": {
+    "DataFollowIgnoreRule": {
       "type": "object",
       "properties": {
-        "rules": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "at": {
-                "$ref": "#/definitions/UrlRuleMatcher"
-              },
-              "scenarios": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/definitions/CrawlScenario"
-                }
-              },
-              "visitDataFollow": {
-                "description": "Whether to follow buttons annotated with data-follow-id. When not specified, it uses the visitDataFollowByDefault by default",
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "at"
-            ],
-            "additionalProperties": false
-          }
+        "matcher": {
+          "$ref": "#/definitions/UrlRuleMatcher"
         },
-        "sequences": {
-          "description": "Named step sequences referenced by a step in the scenario",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/CrawlSequence"
-          }
-        },
-        "visitDataFollowByDefault": {
-          "default": true,
-          "description": "Whether to follow buttons annotated with data-follow-id by default",
-          "type": "boolean"
+        "ignore": {
+          "$ref": "#/definitions/Condition"
         }
       },
       "required": [
-        "rules"
+        "matcher",
+        "ignore"
       ],
       "additionalProperties": false,
-      "description": "Crawl scenarios and reusable sequences for matching URLs."
+      "description": "Follow ids the crawler should not follow on the URLs a matcher matches. Without this, follow ids that appear on every page (nav bars, footers) get clicked from every node, so the crawler keeps re-visiting the same destinations."
     },
-    "CrawlScenario": {
+    "HostOverrideRule": {
       "type": "object",
       "properties": {
-        "name": {
-          "type": "string"
+        "matcher": {
+          "$ref": "#/definitions/UrlRuleMatcher"
         },
-        "steps": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/CrawlStep"
-          },
-          "description": "Steps to execute in order."
-        }
-      },
-      "required": [
-        "steps"
-      ],
-      "additionalProperties": false
-    },
-    "CrawlStep": {
-      "anyOf": [
-        {
-          "type": "object",
-          "properties": {
-            "run": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Name of a reusable sequence to run."
-            }
-          },
-          "required": [
-            "run"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "click": {
-              "$ref": "#/definitions/Condition"
-            }
-          },
-          "required": [
-            "click"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "fill": {
-              "$ref": "#/definitions/Condition"
-            },
-            "value": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "var": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  },
-                  "required": [
-                    "var"
-                  ],
-                  "additionalProperties": false
-                }
-              ]
-            }
-          },
-          "required": [
-            "fill",
-            "value"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "waitFor": {
-              "$ref": "#/definitions/Condition"
-            },
-            "expectedValue": {
-              "$ref": "#/definitions/Condition"
-            },
-            "timeoutMs": {
-              "default": 3000,
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 9007199254740991
-            }
-          },
-          "required": [
-            "waitFor",
-            "expectedValue"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "fetchUrl": {
-              "type": "string"
-            },
-            "body": {
-              "type": "object",
-              "propertyNames": {
-                "type": "string"
-              },
-              "additionalProperties": {
-                "type": "string"
-              }
-            },
-            "saveAs": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Variable name for the response."
-            }
-          },
-          "required": [
-            "fetchUrl",
-            "body",
-            "saveAs"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "visitFollowIdsAtSelector": {
-              "type": "string",
-              "description": "Visit all follow ids that are in the specific selector. This action should be the last action when specified"
-            }
-          },
-          "required": [
-            "visitFollowIdsAtSelector"
-          ],
-          "additionalProperties": false
-        }
-      ],
-      "description": "One crawl operation. Specify exactly one operation per step."
-    },
-    "CrawlSequence": {
-      "type": "object",
-      "properties": {
-        "name": {
+        "updatedHost": {
           "type": "string",
-          "minLength": 1
-        },
-        "steps": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/CrawlStep"
-          },
-          "description": "Steps to execute in order."
+          "description": "The host to record instead, e.g. `halfmore.co`. It replaces the host whole, so carry the port when the graph should have one."
         }
       },
       "required": [
-        "name",
-        "steps"
+        "matcher",
+        "updatedHost"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "The host the graph records for the URLs a matcher matches, in place of the one the crawler visited."
     },
     "VariantRule": {
       "type": "object",
@@ -698,23 +527,6 @@
       ],
       "additionalProperties": false,
       "description": "One version of a page, identified by its query params."
-    },
-    "DataFollowIgnoreRule": {
-      "type": "object",
-      "properties": {
-        "matcher": {
-          "$ref": "#/definitions/UrlRuleMatcher"
-        },
-        "ignore": {
-          "$ref": "#/definitions/Condition"
-        }
-      },
-      "required": [
-        "matcher",
-        "ignore"
-      ],
-      "additionalProperties": false,
-      "description": "Follow ids the crawler should not follow on the URLs a matcher matches. Without this, follow ids that appear on every page (nav bars, footers) get clicked from every node, so the crawler keeps re-visiting the same destinations."
     },
     "ScreenSize": {
       "type": "object",

@@ -134,7 +134,9 @@ host as the graph is built:
 
 ```jsonc
 {
-  "urlsToCrawl": ["https://dev.web.halfmore.co"],
+  "simpleUrlCrawlRules": [
+    { "scenario": { "startUrl": "https://dev.web.halfmore.co" } }
+  ],
 
   // Crawl dev, record production.
   "hostOverrides": [
@@ -155,50 +157,47 @@ rule rewrote is never rewritten again by a later one. The matcher is the same
 one every other rule takes, so `path` and `queryParams` can narrow it further.
 
 This changes only the host the graph records. The crawler still visits the host
-it was pointed at — put a rule in `urlCrawlNormalizeRules` to change that.
+it was pointed at.
 
-## Declaring crawl scenarios
+## Declaring simple URL crawls
 
-`crawlRules` is a list of rules. Each rule keeps its URL matcher in `at`,
-its named scenarios in `scenarios`, and reusable step sequences in `sequences`.
-A scenario or sequence holds an ordered `steps` array.
+`simpleUrlCrawlRules` lists crawls that start from one URL and follow links
+without scripted steps. Each rule holds a `scenario` with a required
+`startUrl` and an optional `name`. `urlNormalizeRules` apply in order to the
+URLs that scenario visits, which dedupes them in the navigation graph.
+`dataFollowIgnoreRules` name follow ids the crawler should skip on matched
+URLs, such as nav-bar and footer links repeated on every page. Both are
+optional.
 
 ```jsonc
 {
   "screenSizes": [{ "width": 1280, "height": 720 }],
-  "crawlRules": [
+  "simpleUrlCrawlRules": [
     {
-      "at": { "path": "/login" },
-      "sequences": [
-        { "name": "submit", "steps": [{ "click": "submit" }] }
-      ],
-      "scenarios": [
-        {
-          "name": "Sign in",
-          "steps": [
-            { "fill": "email", "value": { "var": "email" } },
-            { "run": "submit" },
-            { "waitFor": "status", "expectedValue": "ready", "timeoutMs": 5000 }
-          ]
-        }
-      ]
+      "scenario": {
+        "name": "Product listing",
+        "startUrl": "https://dev.web.halfmore.co/products",
+        "urlNormalizeRules": [
+          {
+            "matcher": { "path": { "prefix": "/product/" } },
+            "transform": { "updatedPath": "/product/:id" }
+          }
+        ],
+        // Nav-bar links appear on every page; don't follow them from each one.
+        "dataFollowIgnoreRules": [
+          { "matcher": {}, "ignore": { "prefix": "nav-" } }
+        ]
+      }
     }
   ]
 }
 ```
 
-Each step specifies exactly one operation: `click`, `fill`, `waitFor`, `run`,
-or `fetchUrl`. No separate `action` field is needed. `fill` accepts a literal
-string or a variable reference such as `{ "var": "email" }`. `fetchUrl` takes
-`body` and `saveAs`, which names the response variable. A wait defaults to
-3000 milliseconds; explicit timeouts must be nonnegative integers.
-Unknown fields and mixed operations are rejected.
+`startUrl` must be an absolute URL reachable from the crawler.
+Flows that need interaction, such as signing in or filling a form, are captured
+by Playwright tests with `@ralphralphai/playwright` instead.
 
 This package defines the configuration shape; it does not execute a crawl.
-Element conditions retain the existing `Condition` shape. The crawl engine
-must define what element property they match, what `expectedValue` observes,
-scenario isolation, sequence and variable scope, and HTTP request behavior.
-Reference existence and sequence cycles are not checked by these schemas.
 
 ## Validating at runtime
 
