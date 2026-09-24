@@ -6,14 +6,14 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, expect, it, vi } from 'vitest';
 
 import { readBundle } from '../test/read_bundle';
-import type { CaptureManifest } from './types';
+import type { RawGraphManifest } from './types';
 import {
-  createCaptureBundle,
+  createRawGraphBundle,
   resolveUploadOptions,
-  uploadCapture,
+  uploadRawGraph,
 } from './upload';
 
-const manifest: CaptureManifest = {
+const manifest: RawGraphManifest = {
   formatVersion: 1,
   producer: {
     name: '@ralphralphai/playwright',
@@ -46,7 +46,7 @@ const manifest: CaptureManifest = {
 
 async function readIndex(compressed: Uint8Array): Promise<unknown> {
   const files = await readBundle(compressed);
-  return JSON.parse(Buffer.from(files.get('capture.json')!).toString());
+  return JSON.parse(Buffer.from(files.get('raw_graph.json')!).toString());
 }
 
 afterEach(() => {
@@ -57,7 +57,7 @@ it('encodes a gzipped tar with a JSON index referencing image files', async () =
   const nodeId = randomUUID();
   const bytes = Buffer.from([0, 1, 2, 253, 254, 255]);
   const fallbackId = randomUUID();
-  const compressed = await createCaptureBundle(manifest, [
+  const compressed = await createRawGraphBundle(manifest, [
     { nodeId, contentType: 'image/webp', bytes },
     { nodeId: fallbackId, contentType: 'image/png', bytes },
   ]);
@@ -65,9 +65,9 @@ it('encodes a gzipped tar with a JSON index referencing image files', async () =
   const path = `assets/images/${nodeId}.webp`;
   const fallbackPath = `assets/images/${fallbackId}.png`;
   const files = await readBundle(compressed);
-  expect([...files.keys()]).toEqual(['capture.json', path, fallbackPath]);
+  expect([...files.keys()]).toEqual(['raw_graph.json', path, fallbackPath]);
   expect(
-    JSON.parse(Buffer.from(files.get('capture.json')!).toString()),
+    JSON.parse(Buffer.from(files.get('raw_graph.json')!).toString()),
   ).toEqual({
     manifest,
     screenshots: [
@@ -78,9 +78,9 @@ it('encodes a gzipped tar with a JSON index referencing image files', async () =
   expect(Buffer.from(files.get(path)!)).toEqual(bytes);
 });
 
-it('rejects capture ids that are not path-safe', async () => {
+it('rejects node ids that are not path-safe', async () => {
   await expect(
-    createCaptureBundle(manifest, [
+    createRawGraphBundle(manifest, [
       {
         nodeId: '../escape',
         contentType: 'image/webp',
@@ -131,6 +131,7 @@ it('uploads with bearer authentication and verifies the server receipt', async (
         result: 'ok',
         status: 'received',
         attemptId: manifest.attemptId,
+        resultId: 'result-1',
         replayed: requests.length > 1,
       }),
     );
@@ -143,8 +144,8 @@ it('uploads with bearer authentication and verifies the server receipt', async (
       appId: 'app12345',
       uploadKey: 'secret',
     };
-    expect((await uploadCapture(manifest, [], options)).replayed).toBe(false);
-    expect((await uploadCapture(manifest, [], options)).replayed).toBe(true);
+    expect((await uploadRawGraph(manifest, [], options)).replayed).toBe(false);
+    expect((await uploadRawGraph(manifest, [], options)).replayed).toBe(true);
     expect(requests).toEqual(
       Array(2).fill({
         url: '/api/upload/playwright/apps/app12345/attempts',
@@ -166,7 +167,7 @@ it.each([
   'ftp://127.0.0.1',
 ])('rejects non-HTTPS API URLs outside loopback (%s)', async (apiUrl) => {
   await expect(
-    uploadCapture(manifest, [], {
+    uploadRawGraph(manifest, [], {
       apiUrl,
       appId: 'app12345',
       uploadKey: 'secret',
@@ -178,7 +179,7 @@ it.each(['', '../escape', 'app/1', 'app?x=1'])(
   'rejects app ids that are not path-safe (%s)',
   async (appId) => {
     await expect(
-      uploadCapture(manifest, [], {
+      uploadRawGraph(manifest, [], {
         apiUrl: 'https://ralph.example',
         appId,
         uploadKey: 'secret',
@@ -208,7 +209,7 @@ it.each([401, 409, 500, 302, 200])(
     await once(server, 'listening');
     try {
       await expect(
-        uploadCapture(manifest, [], {
+        uploadRawGraph(manifest, [], {
           apiUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
           appId: 'app12345',
           uploadKey: 'secret',

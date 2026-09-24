@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
-import type { CaptureManifest } from '../src/types';
+import type { RawGraphManifest } from '../src/types';
 
 type Result = {
   status: string;
@@ -68,12 +68,12 @@ afterAll(async () => {
 async function viewport(key: string) {
   const attachment = results
     .get(key)!
-    .attachments.find((item) => item.name === 'ralph-captures');
+    .attachments.find((item) => item.name === 'ralph-raw-graph');
   const manifest = JSON.parse(
     await readFile(attachment!.path, 'utf8'),
-  ) as CaptureManifest;
+  ) as RawGraphManifest;
   const [node] = manifest.nodes;
-  return node.status === 'captured' ? node.layout.viewport : undefined;
+  return node.status === 'recorded' ? node.layout.viewport : undefined;
 }
 
 it('runs untagged tests at every configured screen size', async () => {

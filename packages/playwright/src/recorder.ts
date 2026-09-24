@@ -9,47 +9,47 @@ import packageInfo from '../package.json';
 import { imageExtension, takeScreenshot, type Screenshot } from './image';
 import { readLayout } from './layout';
 import type {
-  CaptureManifest,
+  RawGraphManifest,
   RawNode,
-  CaptureOptions,
+  RecordNodeOptions,
   ConfigSnapshot,
   Ralph,
   RalphOptions,
 } from './types';
-import { uploadCapture, type UploadOptions } from './upload';
+import { uploadRawGraph, type UploadOptions } from './upload';
 
-export const MANIFEST_ATTACHMENT = 'ralph-captures';
+export const MANIFEST_ATTACHMENT = 'ralph-raw-graph';
 
 const DEFAULT_SETTLE_MS = 150;
-const DEFAULT_CAPTURE_TIMEOUT_MS = 5_000;
+const DEFAULT_RECORD_TIMEOUT_MS = 5_000;
 
-/** Where captures are written, inside Playwright's per-test output directory. */
+/** Where the raw graph and screenshots are written, inside Playwright's per-test output directory. */
 const OUTPUT_DIR = 'ralph';
 
-type PageInfo = CaptureManifest['pages'][number];
+type PageInfo = RawGraphManifest['pages'][number];
 
 type NodeRequest = Omit<RawNode, 'status'>;
 
-type CapturedNode = Extract<RawNode, { status: 'captured' }>;
+type RecordedNode = Extract<RawNode, { status: 'recorded' }>;
 
 /** What the recorder tracks for one browser tab. */
 type PageState = {
   page: Page;
   info: PageInfo;
 
-  /** The URL of the last navigation, so a reload is not captured again. */
+  /** The URL of the last navigation, so a reload is not recorded again. */
   lastUrl: string;
 
   /**
-   * Bumped on every main-frame navigation, including reloads. A capture that
+   * Bumped on every main-frame navigation, including reloads. A recording that
    * sees a different generation when it finishes was overtaken by one.
    */
   generation: number;
 
-  /** The next capture's position within this tab. */
+  /** The next node's position within this tab. */
   sequence: number;
 
-  /** The last queued capture. Captures in a tab run one at a time. */
+  /** The last queued recording. Recordings in a tab run one at a time. */
   tail: Promise<void>;
 
   /** Resolves once `info.openerPageId` is known. */
@@ -66,14 +66,14 @@ export class Recorder implements Ralph {
   private readonly attemptId = randomUUID();
   private readonly startedAt = new Date().toISOString();
 
-  /** How long to wait after a navigation's DOM loads before capturing. */
+  /** How long to wait after a navigation's DOM loads before recording. */
   private readonly settleMs: number;
 
   /**
-   * The budget for one capture, from settling through the screenshot. Past it,
-   * the capture is recorded as failed.
+   * The budget for recording one node, from settling through the screenshot.
+   * Past it, the node is recorded as failed.
    */
-  private readonly captureTimeoutMs: number;
+  private readonly recordTimeoutMs: number;
 
   /**
    * Every context being watched. `onPage` is kept so `stopContext` can remove
@@ -87,19 +87,19 @@ export class Recorder implements Ralph {
 
   /**
    * Every tab seen in a watched context, including closed ones, so their
-   * captures and opener links still reach the manifest.
+   * nodes and opener links still reach the manifest.
    */
   private readonly pages = new Map<Page, PageState>();
 
   /**
-   * Each capture's outcome, in completion order. Captures in one tab complete
+   * Each node's outcome, in completion order. Nodes in one tab complete
    * in sequence, but tabs interleave; `finish` sorts them.
    */
   private readonly nodes: RawNode[] = [];
 
   /**
-   * When each capture was requested, keyed by capture id, for linking a
-   * popup's first capture to its opener's latest. Numbers, so they compare
+   * When each node was requested, keyed by node id, for linking a
+   * popup's first node to its opener's latest. Numbers, so they compare
    * without parsing each node's `requestedAt` string.
    */
   private readonly requestedAtMs = new Map<string, number>();
@@ -114,17 +114,16 @@ export class Recorder implements Ralph {
     private readonly upload?: UploadOptions,
   ) {
     this.settleMs = options.settleMs ?? DEFAULT_SETTLE_MS;
-    this.captureTimeoutMs =
-      options.captureTimeoutMs ?? DEFAULT_CAPTURE_TIMEOUT_MS;
+    this.recordTimeoutMs = options.recordTimeoutMs ?? DEFAULT_RECORD_TIMEOUT_MS;
 
     const validTimings =
       Number.isFinite(this.settleMs) &&
       this.settleMs >= 0 &&
-      Number.isFinite(this.captureTimeoutMs) &&
-      this.captureTimeoutMs > this.settleMs;
+      Number.isFinite(this.recordTimeoutMs) &&
+      this.recordTimeoutMs > this.settleMs;
     if (!validTimings) {
       throw new Error(
-        'Ralph captureTimeoutMs must be finite and greater than settleMs, which must be non-negative.',
+        'Ralph recordTimeoutMs must be finite and greater than settleMs, which must be non-negative.',
       );
     }
   }
@@ -133,7 +132,7 @@ export class Recorder implements Ralph {
   // Public API
   // ---------------------------------------------------------------------------
 
-  /** Starts capturing URL changes in every current and future tab of `context`. */
+  /** Starts recording URL changes in every current and future tab of `context`. */
   observe(context: BrowserContext): void {
     if (this.closed) {
       throw new Error('The Ralph recorder has finished.');
@@ -152,22 +151,22 @@ export class Recorder implements Ralph {
     }
   }
 
-  /** Captures the page as it is now, e.g. an open dialog at the same URL. */
-  async captureNode(page: Page, options: CaptureOptions = {}): Promise<void> {
+  /** Records the page as it is now, e.g. an open dialog at the same URL. */
+  async recordNode(page: Page, options: RecordNodeOptions = {}): Promise<void> {
     this.observe(page.context());
     const state = this.pages.get(page);
     if (!state) {
-      throw new Error('Cannot capture a closed browser page.');
+      throw new Error('Cannot record a closed browser page.');
     }
     await this.enqueue(state, 'explicit', options);
   }
 
-  /** Waits for every queued capture to finish. */
+  /** Waits for every queued recording to finish. */
   async flush(): Promise<void> {
     await Promise.all([...this.pages.values()].map((state) => state.tail));
   }
 
-  /** Stops watching `context` and waits for its queued captures. */
+  /** Stops watching `context` and waits for its queued recordings. */
   async stopContext(context: BrowserContext): Promise<void> {
     const entry = this.contexts.get(context);
     if (entry) {
@@ -185,7 +184,7 @@ export class Recorder implements Ralph {
 
   /**
    * Stops recording, then writes the manifest, uploads it if configured, and
-   * fails a passing test whose captures failed.
+   * fails a passing test whose nodes failed to record.
    */
   async finish(): Promise<void> {
     this.closed = true;
@@ -212,9 +211,9 @@ export class Recorder implements Ralph {
 
     if (failures.length && this.testInfo.status === 'passed') {
       throw new Error(
-        'Ralph could not capture ' +
+        'Ralph could not record ' +
           failures.length +
-          ' page state(s). See the ralph-captures attachment.',
+          ' page state(s). See the ralph-raw-graph attachment.',
       );
     }
   }
@@ -271,20 +270,20 @@ export class Recorder implements Ralph {
     state.lastUrl = url;
 
     if (isHttpUrl(url)) {
-      // Automatic captures never fail the test; failures land in the manifest.
+      // Automatic recordings never fail the test; failures land in the manifest.
       void this.enqueue(state, 'url-change', {}).catch(() => undefined);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Capturing
+  // Recording
   // ---------------------------------------------------------------------------
 
-  /** Queues a capture behind the tab's earlier ones. */
+  /** Queues a recording behind the tab's earlier ones. */
   private enqueue(
     state: PageState,
     trigger: RawNode['trigger'],
-    options: CaptureOptions,
+    options: RecordNodeOptions,
   ): Promise<void> {
     const actualUrl = state.page.url();
     const url =
@@ -293,7 +292,7 @@ export class Recorder implements Ralph {
         : new URL(options.url, actualUrl).href;
     if (!isHttpUrl(actualUrl) || !isHttpUrl(url)) {
       throw new Error(
-        'Ralph captures require HTTP or HTTPS page and recorded URLs.',
+        'Ralph recordings require HTTP or HTTPS page and recorded URLs.',
       );
     }
 
@@ -317,8 +316,8 @@ export class Recorder implements Ralph {
   }
 
   /**
-   * Takes one capture and records its outcome. Fails if the tab navigates or
-   * closes before it finishes, or if it runs past the capture timeout.
+   * Records one node and its outcome. Fails if the tab navigates or
+   * closes before it finishes, or if it runs past the record timeout.
    */
   private async record(
     state: PageState,
@@ -327,8 +326,8 @@ export class Recorder implements Ralph {
   ): Promise<void> {
     const { page } = state;
     const deadline = startDeadline(
-      this.captureTimeoutMs,
-      'Ralph capture timed out.',
+      this.recordTimeoutMs,
+      'Ralph recording timed out.',
     );
     const { wait } = deadline;
     const navigatedAway = () =>
@@ -337,10 +336,10 @@ export class Recorder implements Ralph {
     const check = () => {
       deadline.signal.throwIfAborted();
       if (navigatedAway()) {
-        throw new Error('The page navigated before its capture completed.');
+        throw new Error('The page navigated before its recording completed.');
       }
       if (page.isClosed()) {
-        throw new Error('The page closed before its capture completed.');
+        throw new Error('The page closed before its recording completed.');
       }
     };
 
@@ -361,8 +360,8 @@ export class Recorder implements Ralph {
 
       this.nodes.push({
         ...request,
-        status: 'captured',
-        capturedAt: new Date().toISOString(),
+        status: 'recorded',
+        recordedAt: new Date().toISOString(),
         layout: before,
         geometryStable: JSON.stringify(before) === JSON.stringify(after),
         screenshot: await this.saveScreenshot(request.nodeId, image),
@@ -389,7 +388,7 @@ export class Recorder implements Ralph {
   ): Promise<void> {
     await wait(
       page.waitForLoadState('domcontentloaded', {
-        timeout: this.captureTimeoutMs,
+        timeout: this.recordTimeoutMs,
       }),
     );
     await wait(delay(this.settleMs, undefined, { signal }));
@@ -403,7 +402,7 @@ export class Recorder implements Ralph {
   private async saveScreenshot(
     nodeId: string,
     image: Screenshot,
-  ): Promise<CapturedNode['screenshot']> {
+  ): Promise<RecordedNode['screenshot']> {
     const path = OUTPUT_DIR + '/' + nodeId + imageExtension(image.contentType);
     const attachmentName = 'ralph-screenshot-' + nodeId;
 
@@ -437,7 +436,7 @@ export class Recorder implements Ralph {
   private buildManifest(
     nodes: RawNode[],
     failureCount: number,
-  ): CaptureManifest {
+  ): RawGraphManifest {
     const { testInfo } = this;
     const testPassed = testInfo.status === 'passed';
 
@@ -460,7 +459,7 @@ export class Recorder implements Ralph {
         workerIndex: testInfo.workerIndex,
         parallelIndex: testInfo.parallelIndex,
         shard: testInfo.config.shard,
-        // Failed captures fail the test in `finish`, after this is written.
+        // Failed nodes fail the test in `finish`, after this is written.
         status:
           failureCount && testPassed
             ? 'failed'
@@ -476,13 +475,13 @@ export class Recorder implements Ralph {
         testPassed &&
         nodes.length > 0 &&
         nodes.every(
-          (item) => item.status === 'captured' && item.geometryStable,
+          (item) => item.status === 'recorded' && item.geometryStable,
         ),
     };
   }
 
-  private async writeManifest(manifest: CaptureManifest): Promise<void> {
-    const file = this.testInfo.outputPath(OUTPUT_DIR, 'captures.json');
+  private async writeManifest(manifest: RawGraphManifest): Promise<void> {
+    const file = this.testInfo.outputPath(OUTPUT_DIR, 'raw_graph.json');
     await mkdir(this.testInfo.outputPath(OUTPUT_DIR), { recursive: true });
     await writeFile(file, JSON.stringify(manifest, null, 2) + '\n');
     await this.testInfo.attach(MANIFEST_ATTACHMENT, {
@@ -492,14 +491,14 @@ export class Recorder implements Ralph {
   }
 
   private async uploadManifest(
-    manifest: CaptureManifest,
+    manifest: RawGraphManifest,
     upload: UploadOptions,
   ): Promise<void> {
-    const captured = manifest.nodes.filter(
-      (item): item is CapturedNode => item.status === 'captured',
+    const recorded = manifest.nodes.filter(
+      (item): item is RecordedNode => item.status === 'recorded',
     );
     const screenshots = [];
-    for (const { nodeId, screenshot } of captured) {
+    for (const { nodeId, screenshot } of recorded) {
       screenshots.push({
         nodeId,
         contentType: screenshot.contentType,
@@ -507,7 +506,7 @@ export class Recorder implements Ralph {
       });
     }
 
-    const receipt = await uploadCapture(manifest, screenshots, upload);
+    const receipt = await uploadRawGraph(manifest, screenshots, upload);
     await this.testInfo.attach('ralph-upload-receipt', {
       body: JSON.stringify(receipt),
       contentType: 'application/json',
@@ -557,7 +556,7 @@ function startDeadline(timeoutMs: number, message: string): Deadline {
 
 /**
  * Sets `previousNodeId` on each node: the one before it in the same
- * tab, or for a popup's first capture, its opener's latest. Superseded captures
+ * tab, or for a popup's first node, its opener's latest. Superseded nodes
  * are skipped, since their page state was never shown.
  *
  * `nodes` must be sorted by page, then sequence.
@@ -581,7 +580,7 @@ function linkPreviousNodes(
       .at(-1);
   };
 
-  // First the raw chain, superseded captures included.
+  // First the raw chain, superseded nodes included.
   const previous = new Map<RawNode, RawNode>();
   for (const items of byPage.values()) {
     items.forEach((item, index) => {

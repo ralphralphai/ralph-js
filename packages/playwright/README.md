@@ -1,134 +1,211 @@
 # @ralphralphai/playwright
 
-Opt-in Playwright fixtures for recording the page states a test visits. Ralph
-automatically captures URL changes, and explicit captures handle dialogs and
-other states at the same URL. Each capture contains a screenshot, the recorded
-and actual URLs, and `data-track-id` element positions.
+Turn your Playwright tests into a map of your app for
+[Ralph](https://ralphralph.ai).
 
-The fixture saves local artifacts and can upload a gzip-compressed tar bundle per
-test attempt. Graph construction runs on the server; ingestion currently returns
-an attempt receipt, with graph processing and the dashboard URL still pending.
+Tag a test with `@ralph` and every page it visits is recorded: a full-page
+screenshot, the URL, and the position of every element carrying a
+`data-track-id`. Ralph builds a navigation graph from those recordings and
+overlays real user interactions on the screenshots as heatmaps.
 
-## Install and enable
+Your tests keep driving the app exactly as they do today. Untagged tests are
+untouched, and recording is off unless you turn it on.
 
-Requires Node.js 20.19+ and Playwright Test 1.62.1+ within major version 1.
+## Install
+
+Requires Node.js 20.19+ and Playwright Test 1.62.1+ (major version 1).
 
 ```sh
 pnpm add -D @ralphralphai/playwright @playwright/test
 pnpm exec playwright install chromium
 ```
 
-Put a `ralph.jsonc` next to `playwright.config.ts`:
+## Quick start
 
-```json
+**1. Add a `ralph.jsonc`** next to `playwright.config.ts`, listing the screen
+sizes to record at:
+
+```jsonc
 {
-  "screenSizes": []
+  "$schema": "./node_modules/@ralphralphai/config/schema/ralph.schema.json",
+  "screenSizes": [{ "width": 1280, "height": 720 }]
 }
 ```
 
-The actual viewport is controlled by Playwright; use `ralphProjects` to run
-tests at the config's `screenSizes` (see [Screen sizes](#screen-sizes)). The
-fixture preserves the Ralph config; it does not run its simple URL crawls.
+See [`@ralphralphai/config`](https://www.npmjs.com/package/@ralphralphai/config)
+for everything the file can declare.
 
-Use Ralph's extended `test` and tag the tests that should participate:
+**2. Import `test` from this package and tag the tests to record:**
 
 ```ts
 import { test, expect } from '@ralphralphai/playwright';
 
-test('checkout', { tag: '@ralph' }, async ({ page, ralph }) => {
+test('checkout', { tag: '@ralph' }, async ({ page }) => {
   await page.goto('https://example.com/cart');
-  await ralph.flush();
-
-  await page.getByRole('button', { name: 'Shipping options' }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-
-  await ralph.captureNode(page, {
-    state: 'shipping-options-open',
-    url: '/checkout/shipping-options',
-  });
-});
-
-test('ordinary validation', async ({ page }) => {
-  await page.goto('https://example.com/login');
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  await page.getByRole('link', { name: 'Checkout' }).click();
+  await expect(page).toHaveURL(/checkout/);
 });
 ```
+
+Every URL the test reaches is recorded automatically. You don't need to call
+anything.
+
+**3. Run with recording on:**
 
 ```sh
 RALPH_MODE=local pnpm exec playwright test
 ```
 
-Recording defaults to off. Normal `pnpm exec playwright test` runs need no
-Ralph config or credentials. Unmarked tests stay unrecorded in every mode.
-Calling `ralph.capture` in an unmarked test while recording is enabled reports
-the missing `@ralph` tag.
+Recordings are saved into Playwright's test output directory. To send them to
+Ralph instead, see [Uploading to Ralph](#uploading-to-ralph).
 
-`RALPH_MODE=off` disables recording and makes explicit capture calls no-ops.
-Tests that import directly from `@playwright/test` continue to work alongside
-Ralph tests. Importing the integration does not launch a browser for API-only
-tests.
+## Tag your elements
 
-`RALPH_MODE=upload`, or setting `RALPH_UPLOAD_KEY` without an explicit mode,
-enables uploading. Set `RALPH_API_URL` to your Ralph server origin (or set
-`ralphOptions.apiUrl`). The origin must use HTTPS; plain HTTP is accepted only
-for loopback hosts (`localhost`, `127.x.x.x`, `[::1]`) during local development.
-Issue a private upload key for your Ralph project with the authenticated
-`/api/project/playwright/key/create` endpoint and keep it in CI secrets. A key belongs to
-the project, so one key serves every app in it. Set `RALPH_APP_ID` (or
-`ralphOptions.appId`) to the app the captures belong to.
+Ralph records the position of every visible element with a `data-track-id`, so
+it can place heatmap data on the screenshot. Use the same ids your
+[`@ralphralphai/tracker`](https://www.npmjs.com/package/@ralphralphai/tracker)
+setup uses:
 
-```sh
-RALPH_MODE=upload RALPH_API_URL=https://your-ralph-server.example RALPH_APP_ID=<app id> pnpm exec playwright test
+```html
+<button data-track-id="add-to-cart">Add to cart</button>
 ```
 
-This uses `RALPH_UPLOAD_KEY` from the environment. Each opted-in attempt uploads
-once during fixture teardown, after its local manifest and screenshots are saved.
-No reporter configuration is required. `off`, `local`, and unmarked tests do not
-upload, even if CI provides a key. Upload failures fail fixture teardown and leave
-local artifacts available according to Playwright's `preserveOutput` setting.
-Successful uploads attach a `ralph-upload-receipt`; credentials are never written
-to the manifest or receipt.
+## Recording pages
 
-## Capture behavior
+### Automatically, on every URL change
 
-Automatic capture watches main-frame HTTP(S) URLs in the standard `context`
-fixture, including new tabs and popups. It includes the first application URL,
-full-document navigation, SPA history changes, query changes, and hash changes.
-It skips `about:blank`, subframe navigation, same-URL reloads, and DOM-only changes.
+In a `@ralph` test, Ralph records a page whenever the URL changes in any tab of
+the test's browser context:
 
-Automatic captures wait for DOM content loaded and then settle for 150 ms by
-default. A URL change does not prove application readiness. Supply `ready` for
-an application-specific condition, or explicitly capture after your assertions.
+- full page loads, redirects (the final page), and SPA route changes
+- query-string and hash changes
+- new tabs and popups
 
-Capture runs in the background and is serialized per browser page. A test can
-navigate again before a screenshot completes. Such nodes are retained as
-`superseded`, without a screenshot attributed to the wrong URL. Use
-`await ralph.flush()` to wait for currently queued captures before deliberately
-leaving a state whose screenshot you need. This is also useful before manually
-closing a page or context.
+It does not record `about:blank`, iframes, reloads of the same URL, or changes
+to the page that don't change the URL.
 
-The standard context fixture drains captures before closing its pages. Manually
-created contexts can be enrolled with `ralph.observe(context)`; their owner must
-flush before closing them. An explicit capture enrolls its page's context too.
+Each recording waits for the DOM to load, then another 150 ms (`settleMs`) for
+the page to render. If your app needs longer, use the `ready` option to say when
+a page is ready:
 
-`await ralph.captureNode(page, { state?, url? })` always requests a node,
-even at the same URL. It uses the current state without the automatic settling
-delay or readiness hook. A relative URL override resolves against the actual
-browser URL. It does not navigate, change history, or affect subsequent automatic
-captures. Only HTTP(S) recorded URLs are accepted.
+```ts
+ralphOptions: {
+  ready: async (page, signal) => {
+    await page.getByTestId('app-ready').waitFor({ timeout: 3000 });
+  },
+},
+```
 
-Explicit capture errors reject the call. Automatic capture errors are written
-to the manifest and fail an otherwise passing opted-in test at fixture teardown.
-Superseded captures and detected geometry changes mark the manifest incomplete,
-without independently failing the test.
+### Explicitly, for states at the same URL
+
+Dialogs, menus, and tabs often change the page without changing the URL. Record
+them with `ralph.recordNode`:
+
+```ts
+test('shipping options', { tag: '@ralph' }, async ({ page, ralph }) => {
+  await page.goto('https://example.com/cart');
+  await page.getByRole('button', { name: 'Shipping options' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+
+  await ralph.recordNode(page, {
+    state: 'shipping-options-open',   // a label for this state
+    url: '/checkout/shipping-options', // optional: the URL to record it under
+  });
+});
+```
+
+`recordNode` records the page as it is right now, without waiting for it to
+settle, so call it after your assertions. The `url` option only changes what is
+recorded; the browser doesn't navigate. Relative URLs resolve against the
+current page.
+
+### Waiting for recordings
+
+Recording runs in the background, so your test isn't slowed down. If the test
+moves on before a screenshot finishes, that recording is marked `superseded`
+rather than attributed to the wrong page. When you need a page recorded before
+leaving it, wait for pending recordings first:
+
+```ts
+await page.goto('https://example.com/pricing');
+await ralph.flush(); // make sure /pricing is recorded
+await page.goto('https://example.com/signup');
+```
+
+### Browser contexts you create yourself
+
+The standard `context` and `page` fixtures are recorded for you. For a context
+you create yourself, enroll it, and flush before closing it:
+
+```ts
+const context = await browser.newContext();
+ralph.observe(context);
+// ...
+await ralph.flush();
+await context.close();
+```
+
+### When recording fails
+
+- An explicit `recordNode` call that fails rejects, like any other failing
+  step.
+- A failed automatic recording fails an otherwise passing test at the end, so
+  missing pages don't go unnoticed. The reason is recorded with the results.
+- A superseded recording, or a page whose layout moved during its screenshot,
+  doesn't fail the test.
+
+## Modes
+
+Set the mode with `RALPH_MODE` or the `mode` option:
+
+| Mode     | What happens                                                                                                                             |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `off`    | Default. Nothing is recorded, no Ralph config or credentials are needed, and `ralph.recordNode` does nothing.                              |
+| `local`  | `@ralph` tests are recorded into Playwright's output directory.                                                                          |
+| `upload` | As `local`, and each test's recordings are uploaded to Ralph when it finishes. Chosen automatically when `RALPH_UPLOAD_KEY` is set and no mode is. |
+
+Tests without the `@ralph` tag are never recorded, in any mode. In `local` or
+`upload` mode, calling `ralph.recordNode` in an untagged test throws a reminder
+to add the tag.
+
+Tests that import from `@playwright/test` directly keep working alongside Ralph
+tests.
+
+## Uploading to Ralph
+
+1. Create an upload key for your Ralph project with the authenticated
+   `/api/project/key/create` endpoint. One key covers every app in the project.
+   Keep it in your CI secrets.
+2. Set these, as environment variables or options:
+
+   | Variable           | Option   | Value                                  |
+   | ------------------ | -------- | -------------------------------------- |
+   | `RALPH_UPLOAD_KEY` |          | The upload key. Environment only.      |
+   | `RALPH_API_URL`    | `apiUrl` | Your Ralph server, e.g. `https://…`    |
+   | `RALPH_APP_ID`     | `appId`  | The app these recordings belong to     |
+
+3. Run:
+
+   ```sh
+   RALPH_MODE=upload RALPH_API_URL=https://your-ralph-server.example RALPH_APP_ID=<app id> \
+     pnpm exec playwright test
+   ```
+
+Each attempt of a `@ralph` test uploads once when it finishes. The upload
+receipt is attached to the test as `ralph-upload-receipt`, and its `resultId`
+opens the upload in the Ralph dashboard at `/uploads/<resultId>`. The upload key
+is never written to the results or the receipt.
+
+`RALPH_API_URL` must be HTTPS. Plain HTTP is accepted only for `localhost`,
+`127.x.x.x`, and `[::1]`, for local development.
+
+If an upload fails, the test fails.
 
 ## Screen sizes
 
-A viewport is fixed for a browser context, and a mobile flow is usually a
-different test from its desktop flow. So each `screenSizes` entry becomes its
-own Playwright project. `ralphProjects` reads the Ralph config synchronously
-and expands a base project into one project per size. Each project's viewport
-is that size:
+A browser context's viewport is fixed, so each entry in `screenSizes` becomes
+its own Playwright project. `ralphProjects` expands one project into one per
+size:
 
 ```ts
 import { defineConfig, devices } from '@playwright/test';
@@ -138,8 +215,8 @@ export default defineConfig<RalphFixtures>({
   projects: [
     // Ordinary tests keep their single project.
     { name: 'chromium', grepInvert: /@ralph\b/, use: devices['Desktop Chrome'] },
-    // With screenSizes 375x812, 768x1024 and 1280x720, this yields the projects
-    // "chromium 375x812", "chromium 768x1024" and "chromium 1280x720".
+    // With screenSizes 375x812 and 1280x720, this creates the projects
+    // "chromium 375x812" and "chromium 1280x720".
     ...ralphProjects({
       name: 'chromium',
       grep: /@ralph\b/,
@@ -149,15 +226,14 @@ export default defineConfig<RalphFixtures>({
 });
 ```
 
-A relative `configPath` resolves against the current directory. Pass
-`{ root: import.meta.dirname }` (or `__dirname`) or an inline `config` as the
-second argument when Playwright runs from elsewhere. Keep it pointing at the
-same config as `ralphOptions`.
+`ralphProjects` reads `ralph.jsonc` from the current directory. If Playwright
+runs from elsewhere, pass `{ root: import.meta.dirname }` (or `__dirname`), or
+an inline `config`, as the second argument. Keep it pointing at the same config
+as `ralphOptions`.
 
-By default, a test runs at every screen size. Tag a test or a `describe` block
-with `@ralph-screen:WIDTHxHEIGHT`, once per size, to run it only at the listed
-sizes. Tags on a `describe` block and its tests combine. The other
-screen projects skip it:
+A test runs at every size by default. A mobile flow is usually a different test
+from its desktop flow, so tag a test or `describe` block with
+`@ralph-screen:WIDTHxHEIGHT`, once per size, to run it only at those sizes:
 
 ```ts
 test(
@@ -168,36 +244,22 @@ test(
   },
 );
 
-// One tag per size: runs at 768x1024 and 1280x720, skipped at 375x812.
-test(
-  'data table',
-  { tag: ['@ralph', '@ralph-screen:768x1024', '@ralph-screen:1280x720'] },
-  async ({ page }) => {},
-);
-
 test.describe('desktop layouts', { tag: '@ralph-screen:1280x720' }, () => {
   test('sidebar', { tag: '@ralph' }, async ({ page }) => {});
 });
 ```
 
-Screen tags apply in every mode, including `off`, and to untagged tests, because
-they choose which flows run. A size the config does not declare fails the test,
-so typos don't silently skip it. Projects not created by `ralphProjects` ignore
-screen tags. To run one size from the command line, use Playwright's project
-filter: `playwright test --project "chromium 375x812"`.
+- Tags on a `describe` block and its tests combine.
+- Screen tags apply in every mode, because they choose which tests run.
+- A size missing from `screenSizes` fails the test, so a typo can't silently
+  skip it.
+- Projects not created by `ralphProjects` ignore screen tags.
+
+To run one size: `playwright test --project "chromium 375x812"`.
 
 ## Options
 
-`WebRalphConfig` is re-exported as a type from this package for inline config
-annotations. Its definition remains in `@ralphralphai/config`:
-
-```ts
-import type { WebRalphConfig } from '@ralphralphai/playwright';
-
-const config: WebRalphConfig = { screenSizes: [] };
-```
-
-Set `ralphOptions` with `test.use` or Playwright's configuration:
+Set `ralphOptions` in `playwright.config.ts`, or per file with `test.use`:
 
 ```ts
 import { defineConfig } from '@playwright/test';
@@ -205,146 +267,51 @@ import type { RalphFixtures } from '@ralphralphai/playwright';
 
 export default defineConfig<RalphFixtures>({
   use: {
-    viewport: { width: 1280, height: 720 },
     ralphOptions: {
       mode: 'local',
       configPath: './ralph.jsonc',
-      buildId: 'application-build-id',
-      runId: 'ci-run-id',
-      settleMs: 150,
-      captureTimeoutMs: 5000,
-      ready: async (page, signal) => {
-        signal.throwIfAborted();
-        await page.getByTestId('app-ready').waitFor({ timeout: 3000 });
-      },
+      buildId: process.env.GIT_SHA,
+      settleMs: 300,
     },
   },
 });
 ```
 
-| Option | Behavior |
-| --- | --- |
-| `mode` | `off`, `local`, or `upload`; overrides `RALPH_MODE` |
-| `apiUrl` | Server origin for uploads; falls back to `RALPH_API_URL` |
-| `uploadTimeoutMs` | Upload request deadline; defaults to 15000 ms |
-| `configPath` | Relative to the Playwright config directory; defaults to `ralph.jsonc` |
-| `config` | Inline `WebRalphConfig` instead of a config file |
-| `buildId` | Optional application build ID; falls back to `RALPH_BUILD_ID` |
-| `runId` | Optional shared CI run ID; falls back to `RALPH_RUN_ID` |
-| `settleMs` | Automatic settling delay; defaults to 150 ms |
-| `captureTimeoutMs` | Per-capture browser-work deadline; defaults to 5000 ms |
-| `ready` | Optional automatic-capture readiness callback with an abort signal |
+| Option            | Default               | What it does                                                                                     |
+| ----------------- | --------------------- | ------------------------------------------------------------------------------------------------ |
+| `mode`            | `RALPH_MODE`, else `off` | `off`, `local`, or `upload`. See [Modes](#modes).                                              |
+| `configPath`      | `ralph.jsonc`         | Path to the config, relative to the Playwright config's directory.                               |
+| `config`          |                       | An inline config instead of a file.                                                              |
+| `apiUrl`          | `RALPH_API_URL`       | Your Ralph server, for uploads.                                                                  |
+| `appId`           | `RALPH_APP_ID`        | The app recordings belong to, for uploads.                                                       |
+| `uploadTimeoutMs` | 30000                 | How long an upload may take.                                                                     |
+| `buildId`         | `RALPH_BUILD_ID`      | Your app's build, so recordings line up with the analytics from that build.                      |
+| `runId`           | `RALPH_RUN_ID`        | Groups the tests of one CI run.                                                                  |
+| `settleMs`        | 150                   | How long to wait after the DOM loads before an automatic recording.                              |
+| `recordTimeoutMs` | 5000                  | How long one recording may take, including settling and `ready`. Must be more than `settleMs`.   |
+| `ready`           |                       | `(page, signal) => Promise<void>`. Waits for your app to be ready before an automatic recording. |
 
-The deadline includes settling and readiness. Custom readiness work should
-honor the signal or use its own bounded Playwright operations. Ralph can stop
-waiting for a callback but cannot cancel arbitrary user code.
+`ready` is bounded by `recordTimeoutMs`. Ralph stops waiting when time runs out
+but can't cancel your code, so honor `signal` or use Playwright operations with
+their own timeouts.
 
-Config files accept JSONC comments and trailing commas and are validated against
-the published config schema. The complete parsed values are snapshotted without
-injecting schema defaults, along with the config package version.
-Snapshots are cached per config source within a worker. Keep the config unchanged
-during a run; the server compares configs across workers before combining
-attempts. Run/build IDs are optional for local exploration, and unique
-attempt IDs are always generated.
+Config files accept comments and trailing commas, and are validated when the
+first `@ralph` test in a worker starts. Keep the config unchanged during a run.
 
-## Existing fixtures
-
-Compose Ralph with the test object your project already uses:
+For an inline config, the type is re-exported:
 
 ```ts
-import { mergeTests } from '@playwright/test';
-import { test as ralphTest } from '@ralphralphai/playwright';
-import { test as applicationTest } from './application-fixtures';
+import type { WebRalphConfig } from '@ralphralphai/playwright';
 
-export const test = mergeTests(applicationTest, ralphTest);
+const config: WebRalphConfig = { screenSizes: [{ width: 1280, height: 720 }] };
 ```
 
-If a custom fixture replaces the standard context entirely, enroll that context
-using `ralph.observe(context)`. Capture it while it is still alive.
+## Limits
 
-## Artifacts
+Per test attempt: 500 screenshots, 64 MiB of screenshots, 2 MiB of recorded
+data besides the screenshots, and 64 MiB compressed. The server accepts up to
+5,000 recorded pages. Split larger flows into several tests.
 
-Each opted-in attempt writes `ralph/captures.json` and full-page screenshots within
-Playwright's per-test output directory. The JSON is attached as
-`ralph-captures`; screenshots are attached with unique names referenced by the
-manifest. Copy the full test output or retain the Playwright attachments.
-Configure Playwright to preserve successful test output when collecting captures.
+## License
 
-The exported `CaptureManifest` and `RawNode` types describe format
-version 1. The manifest includes the config snapshot, producer versions, optional run and
-build IDs, test/project/retry/repeat/shard identity, separate browser-page streams,
-opener relationships, and the `nodes` the test produced.
-
-Each entry in `nodes` is a raw node: one page state as the test saw it, with a
-sequence within its page. The same page visited twice produces two raw nodes,
-and superseded or failed captures are kept too. The server merges raw nodes
-into the graph's nodes; this package does no normalization or merging.
-
-Each node records `previousNodeId`, the node its page state was reached from:
-the previous one on the same page, or for a popup's first node, its opener's
-latest. Superseded nodes are skipped. No code is injected into
-the page; the flow comes from the order of URL changes.
-
-Screenshots are WebP at quality 80, falling back to PNG for pages over 16,383
-pixels in either dimension, which WebP cannot encode. They use one image pixel
-per CSS pixel, including on high-DPI devices.
-Tracked-element boxes use document CSS coordinates and preserve duplicate track
-IDs as separate boxes. Collection includes visible elements in the main frame,
-including open shadow roots; it does not collect child-frame geometry. Elements
-with zero width or height, or entirely off-screen horizontally, are dropped;
-elements below the fold are kept.
-The manifest records viewport, document extent, scroll position, screenshot size,
-and device pixel ratio.
-
-Geometry is measured before and after the screenshot. Differences set
-`geometryStable: false`. This detects layout drift, not every visual change;
-animations, sticky elements, and virtualized content can still need explicit
-application preparation. The package does not freeze or alter the application.
-
-An attempt is `complete` only when the test has passed at fixture finalization,
-there is at least one node, and every node has a screenshot with
-stable measured geometry. A future reporter must reconcile this with the final
-Playwright result if another fixture fails later. Retries have distinct manifests
-and attempt IDs; partial nodes are preserved.
-
-## Upload format and retries
-
-The HTTP body is one `application/gzip` tar archive. `capture.json` holds UTF-8
-JSON `{ manifest, screenshots: [{ nodeId, path }] }`, and each `path` points to
-a raw WebP (or PNG fallback) under `assets/images/`. The manifest includes the exact config
-snapshot.
-The package emits only its current `formatVersion: 1`; the server independently
-keeps versioned Zod schemas and selects one by `formatVersion`. No crawler API
-package or server schema is imported by this integration.
-
-The limits per attempt are 64 MiB compressed, 2 MiB manifest JSON, 64 MiB total
-screenshot bytes, and 500 screenshots. Server validation
-also limits nodes to 5,000. Split larger scenarios into smaller tests.
-Screenshots are already compressed; gzip mainly compresses the manifest.
-
-`uploadCapture(manifest, screenshots, { apiUrl, uploadKey, timeoutMs? })` can retry
-saved artifacts, where each screenshot is `{ nodeId, contentType, bytes: Uint8Array }`.
-`createCaptureBundle(manifest, screenshots)` returns the gzip bytes when a caller
-needs to handle transport itself. An identical retry preserves `attemptId` and
-returns `replayed: true`; changed contents under the same ID are rejected. There
-are no automatic HTTP retries. Playwright test retries create new attempt IDs.
-The manifest's status reflects fixture finalization; a future reporter can
-reconcile failures in fixtures that finish later.
-
-## Development
-
-From the repository root:
-
-```sh
-pnpm --filter @ralphralphai/config build
-pnpm --filter @ralphralphai/playwright build
-pnpm --filter @ralphralphai/playwright check
-pnpm --filter @ralphralphai/playwright lint
-pnpm --filter @ralphralphai/playwright test
-pnpm --filter @ralphralphai/playwright exec playwright install chromium
-pnpm --filter @ralphralphai/playwright test:browser
-```
-
-The browser suite runs real Playwright tests against locally supplied pages,
-then checks the emitted manifests and screenshot attachments. It includes an
-intentional failed first attempt to verify retry isolation.
+Apache-2.0

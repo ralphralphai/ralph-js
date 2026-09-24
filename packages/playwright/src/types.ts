@@ -11,14 +11,14 @@ export type RalphOptions = {
   runId?: string;
   buildId?: string;
   settleMs?: number;
-  captureTimeoutMs?: number;
+  recordTimeoutMs?: number;
   ready?: (page: Page, signal: AbortSignal) => Promise<void>;
 };
 
-export type CaptureOptions = { state?: string; url?: string };
+export type RecordNodeOptions = { state?: string; url?: string };
 
 export type Ralph = {
-  captureNode(page: Page, options?: CaptureOptions): Promise<void>;
+  recordNode(page: Page, options?: RecordNodeOptions): Promise<void>;
   flush(): Promise<void>;
   observe(context: BrowserContext): void;
 };
@@ -49,15 +49,15 @@ export type RawNode = {
   trigger: 'url-change' | 'explicit';
   state?: string;
   /**
-   * The capture this page state was reached from: the previous one on the same
-   * page, or for a popup's first capture, its opener's latest. Superseded
-   * captures are skipped.
+   * The node this page state was reached from: the previous one on the same
+   * page, or for a popup's first node, its opener's latest. Superseded nodes
+   * are skipped.
    */
   previousNodeId?: string;
 } & (
   | {
-      status: 'captured';
-      capturedAt: string;
+      status: 'recorded';
+      recordedAt: string;
       layout: PageLayout;
       geometryStable: boolean;
       screenshot: {
@@ -77,7 +77,7 @@ export type ConfigSnapshot = {
   packageVersion: string;
 };
 
-export type CaptureManifest = {
+export type RawGraphManifest = {
   formatVersion: 1;
   producer: {
     name: '@ralphralphai/playwright';

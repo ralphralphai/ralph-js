@@ -10,8 +10,8 @@ import { promisify } from 'node:util';
 
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
-import type { CaptureManifest, RawNode } from '../src/types';
-import type { CaptureBundleIndex } from '../src/upload';
+import type { RawGraphManifest, RawNode } from '../src/types';
+import type { RawGraphBundleIndex } from '../src/upload';
 import { readBundle } from './read_bundle';
 
 type ReportTest = {
@@ -23,7 +23,7 @@ type ReportSuite = {
   specs?: { title: string; tests: Omit<ReportTest, 'title'>[] }[];
 };
 const require = createRequire(import.meta.url);
-const manifests = new Map<string, CaptureManifest[]>();
+const manifests = new Map<string, RawGraphManifest[]>();
 let output: string;
 let tests: ReportTest[];
 
@@ -71,11 +71,11 @@ beforeAll(async () => {
     const records = [];
     for (const result of test.results) {
       const artifact = result.attachments.find(
-        (item) => item.name === 'ralph-captures',
+        (item) => item.name === 'ralph-raw-graph',
       );
       if (artifact) {
         records.push(
-          JSON.parse(await readFile(artifact.path, 'utf8')) as CaptureManifest,
+          JSON.parse(await readFile(artifact.path, 'utf8')) as RawGraphManifest,
         );
       }
     }
@@ -89,20 +89,20 @@ afterAll(async () => {
   }
 });
 
-function manifest(title: string): CaptureManifest {
+function manifest(title: string): RawGraphManifest {
   const item = manifests.get(title)?.[0];
   expect(item).toBeDefined();
   return item!;
 }
-function captures(title: string) {
+function recordedNodes(title: string) {
   return manifest(title).nodes.filter(
-    (item): item is Extract<RawNode, { status: 'captured' }> =>
-      item.status === 'captured',
+    (item): item is Extract<RawNode, { status: 'recorded' }> =>
+      item.status === 'recorded',
   );
 }
 
-it('captures full-document and SPA URL changes but not reloads or DOM mutations', () => {
-  const items = captures('URL transitions and geometry');
+it('records full-document and SPA URL changes but not reloads or DOM mutations', () => {
+  const items = recordedNodes('URL transitions and geometry');
   expect(items.map((item) => item.url)).toEqual([
     'https://fixture.test/home',
     'https://fixture.test/second',
@@ -121,7 +121,7 @@ it('captures full-document and SPA URL changes but not reloads or DOM mutations'
   expect(items[0].layout.devicePixelRatio).toBe(2);
 });
 
-it('links each capture to the one it was reached from', () => {
+it('links each node to the one it was reached from', () => {
   const data = manifest('navigation flow');
   const [main, popup] = data.pages.map((page) =>
     data.nodes.filter((item) => item.pageId === page.pageId),
@@ -143,20 +143,20 @@ it('links each capture to the one it was reached from', () => {
   // The superseded route is skipped.
   expect(replaced.status).toBe('superseded');
   expect(final).toMatchObject({
-    status: 'captured',
+    status: 'recorded',
     previousNodeId: back.nodeId,
   });
 });
 
 it('drops tracked elements that are off-screen horizontally', () => {
-  const [start] = captures('navigation flow');
+  const [start] = recordedNodes('navigation flow');
   expect(start.layout.trackedElements.map((item) => item.trackId)).toEqual([
     'next-link',
   ]);
 });
 
 it('records explicit same-URL states and overrides without changing browser location', () => {
-  const items = captures('explicit URL overrides');
+  const items = recordedNodes('explicit URL overrides');
   expect(items).toHaveLength(4);
   expect(
     items.slice(1).map((item) => [item.state, item.actualUrl, item.url]),
@@ -173,12 +173,14 @@ it('records explicit same-URL states and overrides without changing browser loca
   expect(items[1].layout.trackedElements[0].y).toBe(40);
 });
 
-it('captures during teardown before context closure and follows redirects', () => {
+it('records during teardown before context closure and follows redirects', () => {
   expect(
-    captures('teardown drains automatic capture').map((item) => item.url),
+    recordedNodes('teardown drains automatic recording').map(
+      (item) => item.url,
+    ),
   ).toEqual(['https://fixture.test/final']);
   expect(
-    captures('redirect final destination').map(
+    recordedNodes('redirect final destination').map(
       (item) => new URL(item.url).pathname,
     ),
   ).toEqual(['/destination']);
@@ -190,7 +192,7 @@ it('reports superseded routes without attaching the next state screenshot to the
     items.find((item) => item.actualUrl.endsWith('/intermediate'))?.status,
   ).toBe('superseded');
   expect(items.at(-1)).toMatchObject({
-    status: 'captured',
+    status: 'recorded',
     actualUrl: 'https://fixture.test/final',
   });
   expect(manifest('superseded transitions').complete).toBe(false);
@@ -205,7 +207,7 @@ it('keeps popups separate and ignores subframe URL changes', () => {
     'https://fixture.test/popup',
   ]);
   expect(data.nodes.map((item) => item.sequence)).toEqual([0, 0]);
-  expect(captures('manual context enrollment')).toHaveLength(1);
+  expect(recordedNodes('manual context enrollment')).toHaveLength(1);
 });
 
 it('keeps retries separate and snapshots config and build identity', () => {
@@ -224,31 +226,31 @@ it('keeps retries separate and snapshots config and build identity', () => {
 it('does not enroll ordinary tests, native imports, or disabled scenarios', () => {
   for (const title of [
     'ordinary test remains unrecorded',
-    'explicit capture requires opt-in',
+    'explicit recording requires opt-in',
     'off needs no config and no browser',
-    'off capture is a no-op',
+    'off recording is a no-op',
     'native Playwright test',
   ]) {
     expect(manifests.get(title), title).toEqual([]);
   }
-  expect(captures('composes customer fixtures')).toHaveLength(1);
+  expect(recordedNodes('composes customer fixtures')).toHaveLength(1);
 });
 
 it('honors readiness and records bounded readiness failures', () => {
-  expect(captures('readiness hook')).toHaveLength(1);
+  expect(recordedNodes('readiness hook')).toHaveLength(1);
   expect(manifest('readiness timeout is bounded').nodes[0]).toMatchObject({
     status: 'failed',
-    reason: 'Ralph capture timed out.',
+    reason: 'Ralph recording timed out.',
   });
 });
 
-it('publishes a portable screenshot attachment for every captured node', async () => {
+it('publishes a portable screenshot attachment for every recorded node', async () => {
   for (const test of tests) {
     for (const [attemptIndex, data] of (
       manifests.get(test.title) ?? []
     ).entries()) {
       for (const item of data.nodes) {
-        if (item.status !== 'captured') {
+        if (item.status !== 'recorded') {
           continue;
         }
         const attachment = test.results[attemptIndex].attachments.find(
@@ -266,7 +268,7 @@ it('publishes a portable screenshot attachment for every captured node', async (
 });
 
 it('uploads opted-in attempts as compressed blobs while retaining local artifacts', async () => {
-  const received: CaptureManifest[] = [];
+  const received: RawGraphManifest[] = [];
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) {
@@ -274,8 +276,8 @@ it('uploads opted-in attempts as compressed blobs while retaining local artifact
     }
     const files = await readBundle(Buffer.concat(chunks));
     const bundle = JSON.parse(
-      Buffer.from(files.get('capture.json')!).toString(),
-    ) as CaptureBundleIndex;
+      Buffer.from(files.get('raw_graph.json')!).toString(),
+    ) as RawGraphBundleIndex;
     for (const screenshot of bundle.screenshots) {
       expect(
         Buffer.from(files.get(screenshot.path)!).toString('ascii', 8, 12),
@@ -285,7 +287,7 @@ it('uploads opted-in attempts as compressed blobs while retaining local artifact
     expect(request.headers.authorization).toBe('Bearer test-secret');
     expect(request.headers['content-type']).toBe('application/gzip');
     expect(bundle.screenshots).toHaveLength(
-      bundle.manifest.nodes.filter((item) => item.status === 'captured').length,
+      bundle.manifest.nodes.filter((item) => item.status === 'recorded').length,
     );
     received.push(bundle.manifest);
     response.setHeader('content-type', 'application/json');
@@ -294,6 +296,7 @@ it('uploads opted-in attempts as compressed blobs while retaining local artifact
         result: 'ok',
         status: 'received',
         attemptId: bundle.manifest.attemptId,
+        resultId: 'result-1',
         replayed: false,
       }),
     );

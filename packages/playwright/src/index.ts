@@ -17,20 +17,20 @@ import { resolveUploadOptions } from './upload';
 
 export { expect, mergeTests } from '@playwright/test';
 export type { WebRalphConfig } from '@ralphralphai/config';
-export { createCaptureBundle, uploadCapture } from './upload';
+export { createRawGraphBundle, uploadRawGraph } from './upload';
 export type {
   UploadOptions,
   UploadReceipt,
-  CaptureScreenshot,
-  CaptureBundleIndex,
+  RawGraphScreenshot,
+  RawGraphBundleIndex,
 } from './upload';
 export { MANIFEST_ATTACHMENT } from './recorder';
 export { ralphProjects, SCREEN_TAG_PREFIX } from './screens';
 export type { RalphProjectOptions } from './screens';
 export type {
-  CaptureManifest,
+  RawGraphManifest,
   RawNode,
-  CaptureOptions,
+  RecordNodeOptions,
   ConfigSnapshot,
   PageLayout,
   Ralph,
@@ -126,7 +126,7 @@ export const test: TestType<
 
     await use(
       _ralphRecorder ?? {
-        captureNode: async () => {
+        recordNode: async () => {
           checkOptIn();
         },
         flush: async () => {},
@@ -141,7 +141,7 @@ export const test: TestType<
     try {
       await use(context);
     } finally {
-      // The base context fixture closes its pages next; pending captures still need them alive.
+      // The base context fixture closes its pages next; pending recordings still need them alive.
       await _ralphRecorder?.stopContext(context);
     }
   },

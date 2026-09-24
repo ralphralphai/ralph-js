@@ -20,7 +20,7 @@ export default defineConfig<RalphFixtures>({
       runId: 'browser-suite',
       buildId: 'fixture-build',
       settleMs: 0,
-      captureTimeoutMs: 3000,
+      recordTimeoutMs: 3000,
     },
   },
 });

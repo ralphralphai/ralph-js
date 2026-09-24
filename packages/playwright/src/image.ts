@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 /**
- * Matches the crawler's full-page captures: lossless measured larger than this
+ * Matches the crawler's full-page screenshots: lossless measured larger than this
  * on real sites, which are mostly photographic content.
  */
 const WEBP_QUALITY = 80;

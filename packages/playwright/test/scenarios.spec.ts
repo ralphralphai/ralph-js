@@ -73,23 +73,23 @@ test('explicit URL overrides', { tag: '@ralph' }, async ({ page, ralph }) => {
   await page.goto('https://fixture.test/cart');
   await ralph.flush();
   await page.evaluate(() => window.scrollTo(0, 600));
-  await ralph.captureNode(page, {
+  await ralph.recordNode(page, {
     state: 'dialog',
     url: '/checkout/shipping-options',
   });
   await expect(page).toHaveURL('https://fixture.test/cart');
-  await ralph.captureNode(page, {
+  await ralph.recordNode(page, {
     state: 'absolute',
     url: 'https://logical.test/cart',
   });
-  await ralph.captureNode(page, { state: 'actual' });
+  await ralph.recordNode(page, { state: 'actual' });
   await expect(
-    ralph.captureNode(page, { url: 'javascript:alert(1)' }),
+    ralph.recordNode(page, { url: 'javascript:alert(1)' }),
   ).rejects.toThrow('HTTP');
 });
 
 test(
-  'teardown drains automatic capture',
+  'teardown drains automatic recording',
   { tag: '@ralph' },
   async ({ page }) => {
     await page.goto('https://fixture.test/final');
@@ -181,20 +181,24 @@ test('ordinary test remains unrecorded', async ({ page }) => {
   await page.goto('https://fixture.test/ordinary');
 });
 
-test('explicit capture requires opt-in', async ({ page, ralph }) => {
+test('explicit recording requires opt-in', async ({ page, ralph }) => {
   await page.goto('https://fixture.test/ordinary');
-  await expect(ralph.captureNode(page)).rejects.toThrow('@ralph');
+  await expect(ralph.recordNode(page)).rejects.toThrow('@ralph');
 });
 
 test.describe('off mode', () => {
   test.use({
     ralphOptions: { mode: 'off', configPath: '/missing/config.jsonc' },
   });
-  test('off capture is a no-op', { tag: '@ralph' }, async ({ page, ralph }) => {
-    await page.goto('https://fixture.test/off');
-    await ralph.captureNode(page, { url: '/logical' });
-    await expect(page).toHaveURL('https://fixture.test/off');
-  });
+  test(
+    'off recording is a no-op',
+    { tag: '@ralph' },
+    async ({ page, ralph }) => {
+      await page.goto('https://fixture.test/off');
+      await ralph.recordNode(page, { url: '/logical' });
+      await expect(page).toHaveURL('https://fixture.test/off');
+    },
+  );
 });
 
 test.describe('readiness', () => {
@@ -203,7 +207,7 @@ test.describe('readiness', () => {
       mode: 'local',
       config: { screenSizes: [] },
       settleMs: 0,
-      captureTimeoutMs: 1000,
+      recordTimeoutMs: 1000,
       ready: async (page) => {
         await page.waitForFunction(() => document.body.dataset.ready === 'yes');
       },

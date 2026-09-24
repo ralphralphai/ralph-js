@@ -4,7 +4,7 @@ import { gzip } from 'node:zlib';
 import { pack } from 'tar-stream';
 
 import { imageExtension, type Screenshot } from './image';
-import type { CaptureManifest, RalphOptions } from './types';
+import type { RawGraphManifest, RalphOptions } from './types';
 
 export type UploadOptions = {
   apiUrl: string;
@@ -12,7 +12,7 @@ export type UploadOptions = {
   uploadKey: string;
   timeoutMs?: number;
 };
-export type CaptureScreenshot = {
+export type RawGraphScreenshot = {
   nodeId: string;
   contentType: Screenshot['contentType'];
   bytes: Uint8Array;
@@ -21,6 +21,7 @@ export type UploadReceipt = {
   result: 'ok';
   status: 'received';
   attemptId: string;
+  resultId: string;
   replayed: boolean;
 };
 
@@ -36,23 +37,23 @@ export function resolveUploadOptions(options: RalphOptions): UploadOptions {
   return { uploadKey, apiUrl, appId, timeoutMs: options.uploadTimeoutMs };
 }
 
-export const CAPTURE_BUNDLE_INDEX = 'capture.json';
-export const CAPTURE_BUNDLE_IMAGE_DIR = 'assets/images';
+export const RAW_GRAPH_BUNDLE_INDEX = 'raw_graph.json';
+export const RAW_GRAPH_BUNDLE_IMAGE_DIR = 'assets/images';
 
-export type CaptureBundleIndex = {
-  manifest: CaptureManifest;
+export type RawGraphBundleIndex = {
+  manifest: RawGraphManifest;
   screenshots: { nodeId: string; path: string }[];
 };
 
 /**
  * Packs the manifest and screenshots into a gzipped tar archive:
  *
- *   capture.json               { manifest, screenshots: [{ nodeId, path }] }
+ *   raw_graph.json               { manifest, screenshots: [{ nodeId, path }] }
  *   assets/images/<id>.webp    raw screenshot bytes (.png when too large for WebP)
  */
-export async function createCaptureBundle(
-  manifest: CaptureManifest,
-  screenshots: readonly CaptureScreenshot[],
+export async function createRawGraphBundle(
+  manifest: RawGraphManifest,
+  screenshots: readonly RawGraphScreenshot[],
 ): Promise<Uint8Array> {
   if (
     Buffer.byteLength(JSON.stringify(manifest)) > 2 * 1024 * 1024 ||
@@ -63,7 +64,7 @@ export async function createCaptureBundle(
     ) >
       64 * 1024 * 1024
   ) {
-    throw new Error('Ralph capture attempt exceeds upload limits.');
+    throw new Error('Ralph raw graph exceeds upload limits.');
   }
 
   const images = screenshots.map(({ nodeId, contentType, bytes }) => {
@@ -72,11 +73,11 @@ export async function createCaptureBundle(
     }
     return {
       nodeId,
-      path: `${CAPTURE_BUNDLE_IMAGE_DIR}/${nodeId}${imageExtension(contentType)}`,
+      path: `${RAW_GRAPH_BUNDLE_IMAGE_DIR}/${nodeId}${imageExtension(contentType)}`,
       bytes,
     };
   });
-  const index: CaptureBundleIndex = {
+  const index: RawGraphBundleIndex = {
     manifest,
     screenshots: images.map(({ nodeId, path }) => ({ nodeId, path })),
   };
@@ -84,7 +85,7 @@ export async function createCaptureBundle(
   // Fixed attributes keep retries of the same attempt byte-identical.
   const attrs = { mtime: new Date(0), uid: 0, gid: 0 };
   const tar = pack();
-  tar.entry({ name: CAPTURE_BUNDLE_INDEX, ...attrs }, JSON.stringify(index));
+  tar.entry({ name: RAW_GRAPH_BUNDLE_INDEX, ...attrs }, JSON.stringify(index));
   for (const { path, bytes } of images) {
     tar.entry({ name: path, ...attrs }, Buffer.from(bytes));
   }
@@ -95,7 +96,7 @@ export async function createCaptureBundle(
   }
   const compressed = await promisify(gzip)(Buffer.concat(chunks));
   if (compressed.byteLength > 64 * 1024 * 1024) {
-    throw new Error('Ralph compressed capture bundle exceeds upload limits.');
+    throw new Error('Ralph compressed raw graph bundle exceeds upload limits.');
   }
 
   return compressed;
@@ -109,9 +110,9 @@ function isLoopback(url: URL): boolean {
   );
 }
 
-export async function uploadCapture(
-  manifest: CaptureManifest,
-  screenshots: readonly CaptureScreenshot[],
+export async function uploadRawGraph(
+  manifest: RawGraphManifest,
+  screenshots: readonly RawGraphScreenshot[],
   options: UploadOptions,
 ): Promise<UploadReceipt> {
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(options.appId)) {
@@ -139,7 +140,7 @@ export async function uploadCapture(
   }
 
   const blob = new Blob(
-    [new Uint8Array(await createCaptureBundle(manifest, screenshots))],
+    [new Uint8Array(await createRawGraphBundle(manifest, screenshots))],
     { type: 'application/gzip' },
   );
 
@@ -153,7 +154,7 @@ export async function uploadCapture(
 
   if (!response.ok) {
     throw new Error(
-      `Ralph upload failed (HTTP ${response.status}). Local capture artifacts are retained for retry.`,
+      `Ralph upload failed (HTTP ${response.status}). Local Ralph artifacts are retained for retry.`,
     );
   }
 
@@ -162,6 +163,7 @@ export async function uploadCapture(
     receipt.result !== 'ok' ||
     receipt.status !== 'received' ||
     receipt.attemptId !== manifest.attemptId ||
+    typeof receipt.resultId !== 'string' ||
     typeof receipt.replayed !== 'boolean'
   ) {
     throw new Error('Ralph server returned an invalid upload receipt.');

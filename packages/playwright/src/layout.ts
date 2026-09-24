@@ -26,7 +26,7 @@ export function readLayout(page: Page): Promise<PageLayout> {
         const trackId = element.getAttribute('data-track-id');
         const rect = element.getBoundingClientRect();
         // Off-screen horizontally (drawers, carousel slides) is dropped like
-        // the crawler does; below the fold is kept, since the capture is
+        // the crawler does; below the fold is kept, since the screenshot is
         // full-page.
         if (
           !trackId ||
