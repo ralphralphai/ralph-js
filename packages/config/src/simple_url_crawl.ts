@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { DataFollowIgnoreRuleSchema } from '@/data_follow_ignore';
-import { UrlNormalizeRuleSchema } from '@/url_normalize';
 
 export const SimpleUrlCrawlScenarioSchema = z
   .strictObject({
@@ -15,11 +14,6 @@ export const SimpleUrlCrawlScenarioSchema = z
       .describe(
         'The URL the crawl starts from. Should be accessible from the crawler.',
       ),
-    urlNormalizeRules: UrlNormalizeRuleSchema.array()
-      .optional()
-      .describe(
-        'Normalize rules to apply, in order, to the URLs this scenario visits. Dedupes the URLs when building the Web navigation graph.',
-      ),
     dataFollowIgnoreRules: DataFollowIgnoreRuleSchema.array()
       .optional()
       .describe(
@@ -29,7 +23,7 @@ export const SimpleUrlCrawlScenarioSchema = z
   .meta({
     id: 'SimpleUrlCrawlScenario',
     description:
-      'One URL to start crawling from, how to normalize the URLs it reaches, and which follow ids to skip.',
+      'One URL to start crawling from, and which follow ids to skip. The URLs it reaches are normalized by the top-level `graphUrlNormalizeRules`.',
   });
 
 export const SimpleUrlCrawlRuleSchema = z

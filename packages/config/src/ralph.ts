@@ -27,6 +27,12 @@ export const WebRalphConfigSchema = z
         'Host rewrites applied when the Web navigation graph is built, for when the crawl and the tracker run on different hosts: the crawler visits `dev.web.halfmore.co`, the tracker reports from `halfmore.co`, and the graph has to record the host the tracker reports for the two to join. The first rule whose matcher matches wins and the rest are skipped, so a rewritten host is never rewritten again. The crawl itself is untouched - only the host the graph records changes.',
       ),
 
+    graphUrlNormalizeRules: UrlNormalizeRuleSchema.array()
+      .optional()
+      .describe(
+        'Normalize rules to apply, in order, to every recorded URL when the Web navigation graph is merged, e.g. collapsing `/product/42` and `/product/43` onto one `/product/:id` node. Covers Playwright recordings and simple URL crawls alike, so both merge onto the same nodes. Applied after `hostOverrides`, so matchers see the host the graph records. Keep the path rewrites in line with `urlAnalysisNormalizeRules`, or tracker data will not join the graph nodes.',
+      ),
+
     urlAnalysisNormalizeRules: UrlNormalizeRuleSchema.array()
       .optional()
       .describe(

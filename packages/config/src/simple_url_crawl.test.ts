@@ -5,7 +5,7 @@ import { WebRalphConfigSchema } from '@/ralph';
 import { SimpleUrlCrawlRuleSchema } from '@/simple_url_crawl';
 
 describe('simpleUrlCrawlRules', () => {
-  it('parses a scenario with a name, start URL, normalize and ignore rules', () => {
+  it('parses a scenario with a name, start URL and ignore rules', () => {
     const config: WebRalphConfig = {
       screenSizes: [],
       simpleUrlCrawlRules: [
@@ -13,12 +13,6 @@ describe('simpleUrlCrawlRules', () => {
           scenario: {
             name: 'Product listing',
             startUrl: 'https://dev.web.halfmore.co/products',
-            urlNormalizeRules: [
-              {
-                matcher: { path: { prefix: '/product/' } },
-                transform: { updatedPath: '/product/:id' },
-              },
-            ],
             dataFollowIgnoreRules: [
               { matcher: {}, ignore: { prefix: 'nav-' } },
             ],
@@ -41,6 +35,11 @@ describe('simpleUrlCrawlRules', () => {
       { scenario: { startUrl: 'https://a.co', normalizeRules: [] } },
     ],
     ['the scenario fields unwrapped', { startUrl: 'https://a.co' }],
+    // Moved to the top-level `graphUrlNormalizeRules`.
+    [
+      'the removed scenario urlNormalizeRules',
+      { scenario: { startUrl: 'https://a.co', urlNormalizeRules: [] } },
+    ],
     [
       'an ignore rule with no matcher',
       {

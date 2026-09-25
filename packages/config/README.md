@@ -159,15 +159,32 @@ one every other rule takes, so `path` and `queryParams` can narrow it further.
 This changes only the host the graph records. The crawler still visits the host
 it was pointed at.
 
+### Normalizing URLs in the graph
+
+`graphUrlNormalizeRules` rewrite every recorded URL as the navigation graph is
+merged, so pages that differ only by an id collapse onto one node. They cover
+Playwright recordings and simple crawls alike, and apply after `hostOverrides`.
+
+```jsonc
+"graphUrlNormalizeRules": [
+  {
+    "matcher": { "path": { "regex": "^/order/[0-9a-f-]+$" } },
+    "transform": { "updatedPath": "/order/:id" }
+  }
+]
+```
+
+Keep the path rewrites in line with `urlAnalysisNormalizeRules`, or tracker
+data won't join the graph nodes.
+
 ## Declaring simple URL crawls
 
 `simpleUrlCrawlRules` lists crawls that start from one URL and follow links
 without scripted steps. Each rule holds a `scenario` with a required
-`startUrl` and an optional `name`. `urlNormalizeRules` apply in order to the
-URLs that scenario visits, which dedupes them in the navigation graph.
-`dataFollowIgnoreRules` name follow ids the crawler should skip on matched
-URLs, such as nav-bar and footer links repeated on every page. Both are
-optional.
+`startUrl` and an optional `name`. Optional `dataFollowIgnoreRules` name follow
+ids the crawler should skip on matched URLs, such as nav-bar and footer links
+repeated on every page. The URLs a crawl reaches are normalized by the top-level
+`graphUrlNormalizeRules`.
 
 ```jsonc
 {
@@ -177,12 +194,6 @@ optional.
       "scenario": {
         "name": "Product listing",
         "startUrl": "https://dev.web.halfmore.co/products",
-        "urlNormalizeRules": [
-          {
-            "matcher": { "path": { "prefix": "/product/" } },
-            "transform": { "updatedPath": "/product/:id" }
-          }
-        ],
         // Nav-bar links appear on every page; don't follow them from each one.
         "dataFollowIgnoreRules": [
           { "matcher": {}, "ignore": { "prefix": "nav-" } }

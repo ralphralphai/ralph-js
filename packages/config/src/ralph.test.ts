@@ -23,6 +23,12 @@ describe('WebRalphConfigSchema', () => {
           updatedHost: 'example.com',
         },
       ],
+      graphUrlNormalizeRules: [
+        {
+          matcher: { path: { prefix: '/product/' } },
+          transform: { updatedPath: '/product/:id' },
+        },
+      ],
       urlAnalysisNormalizeRules: [
         {
           matcher: { path: { prefix: '/product/' } },
@@ -196,6 +202,41 @@ describe('hostOverrides', () => {
     expect(result.success).toBe(false);
     expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain(
       'hostOverrides.0',
+    );
+  });
+});
+
+describe('graphUrlNormalizeRules', () => {
+  // The case it exists for: ids in recorded URLs collapse onto one graph node,
+  // whether a Playwright test or a simple crawl recorded them.
+  it('parses an id-collapsing rule', () => {
+    const result = WebRalphConfigSchema.safeParse({
+      screenSizes: [],
+      graphUrlNormalizeRules: [
+        {
+          matcher: { path: { regex: '^/order/[0-9a-f-]+$' } },
+          transform: {
+            updatedPath: '/order/:id',
+            queryParams: [{ remove: 'session' }],
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('names the offending path when a rule is misspelled', () => {
+    const result = WebRalphConfigSchema.safeParse({
+      screenSizes: [],
+      graphUrlNormalizeRules: [
+        { matcher: {}, transform: { updatedpath: '/order/:id' } },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues.map((issue) => issue.path.join('.'))).toContain(
+      'graphUrlNormalizeRules.0.transform',
     );
   });
 });
