@@ -1,6 +1,6 @@
 {
   "name": "@ralphralphai/playwright",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Opt-in Playwright fixtures that capture page screenshots and tracked-element geometry for Ralph.",
   "license": "Apache-2.0",
   "author": "RalphRalph AI",
@@ -36,6 +36,16 @@
       "require": {
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
+      }
+    },
+    "./reporter": {
+      "import": {
+        "types": "./dist/reporter.d.mts",
+        "default": "./dist/reporter.mjs"
+      },
+      "require": {
+        "types": "./dist/reporter.d.cts",
+        "default": "./dist/reporter.cjs"
       }
     },
     "./package.json": "./package.json"

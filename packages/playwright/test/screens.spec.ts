@@ -8,7 +8,7 @@ test.beforeEach(async ({ context }) => {
 
 test('every screen size', { tag: '@ralph' }, async ({ page, ralph }) => {
   await page.goto('https://fixture.test/all');
-  await ralph.flush();
+  await ralph.waitForCapture();
 });
 
 test(
@@ -16,7 +16,7 @@ test(
   { tag: ['@ralph', '@ralph-screen:375x812'] },
   async ({ page, ralph }) => {
     await page.goto('https://fixture.test/mobile');
-    await ralph.flush();
+    await ralph.waitForCapture();
   },
 );
 
@@ -25,14 +25,14 @@ test(
   { tag: ['@ralph', '@ralph-screen:768x1024', '@ralph-screen:1280x720'] },
   async ({ page, ralph }) => {
     await page.goto('https://fixture.test/wide');
-    await ralph.flush();
+    await ralph.waitForCapture();
   },
 );
 
 test.describe('desktop group', { tag: '@ralph-screen:1280x720' }, () => {
   test('desktop only', { tag: '@ralph' }, async ({ page, ralph }) => {
     await page.goto('https://fixture.test/desktop');
-    await ralph.flush();
+    await ralph.waitForCapture();
   });
 });
 

@@ -4,7 +4,7 @@ import { gzip } from 'node:zlib';
 import { pack } from 'tar-stream';
 
 import { imageExtension, type Screenshot } from './image';
-import type { RawGraphManifest, RalphOptions } from './types';
+import type { RawGraphManifest } from './types';
 
 export type UploadOptions = {
   apiUrl: string;
@@ -20,22 +20,35 @@ export type RawGraphScreenshot = {
 export type UploadReceipt = {
   result: 'ok';
   status: 'received';
-  attemptId: string;
+  artifactId: string;
   resultId: string;
+  /** Where the result opens in the Ralph dashboard, when the server knows. */
+  resultUrl?: string;
   replayed: boolean;
 };
 
-export function resolveUploadOptions(options: RalphOptions): UploadOptions {
+/** Where the reporter uploads: its options, else the environment. */
+export function resolveUploadOptions(options: {
+  apiUrl?: string;
+  appId?: string;
+  uploadTimeoutMs?: number;
+}): UploadOptions {
   const uploadKey = process.env['RALPH_UPLOAD_KEY'];
   const apiUrl = options.apiUrl ?? process.env['RALPH_API_URL'];
   const appId = options.appId ?? process.env['RALPH_APP_ID'];
   if (!uploadKey || !apiUrl || !appId) {
     throw new Error(
-      'Ralph upload requires RALPH_UPLOAD_KEY, RALPH_API_URL (or ralphOptions.apiUrl), and RALPH_APP_ID (or ralphOptions.appId).',
+      'Ralph upload requires RALPH_UPLOAD_KEY, RALPH_API_URL (or the reporter option apiUrl), and RALPH_APP_ID (or appId).',
     );
   }
   return { uploadKey, apiUrl, appId, timeoutMs: options.uploadTimeoutMs };
 }
+
+// Mirrors the server's limits, so an oversized run fails before it is sent.
+export const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
+export const MAX_SCREENSHOTS = 5000;
+export const MAX_SCREENSHOT_BYTES = 256 * 1024 * 1024;
+export const MAX_COMPRESSED_BYTES = 256 * 1024 * 1024;
 
 export const RAW_GRAPH_BUNDLE_INDEX = 'raw_graph.json';
 export const RAW_GRAPH_BUNDLE_IMAGE_DIR = 'assets/images';
@@ -44,6 +57,17 @@ export type RawGraphBundleIndex = {
   manifest: RawGraphManifest;
   screenshots: { nodeId: string; path: string }[];
 };
+
+/** Where a node's screenshot sits inside the bundle. */
+export function bundleImagePath(
+  nodeId: string,
+  contentType: Screenshot['contentType'],
+): string {
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(nodeId)) {
+    throw new Error(`Ralph node id is not path-safe: ${nodeId}`);
+  }
+  return `${RAW_GRAPH_BUNDLE_IMAGE_DIR}/${nodeId}${imageExtension(contentType)}`;
+}
 
 /**
  * Packs the manifest and screenshots into a gzipped tar archive:
@@ -56,33 +80,27 @@ export async function createRawGraphBundle(
   screenshots: readonly RawGraphScreenshot[],
 ): Promise<Uint8Array> {
   if (
-    Buffer.byteLength(JSON.stringify(manifest)) > 2 * 1024 * 1024 ||
-    screenshots.length > 500 ||
+    Buffer.byteLength(JSON.stringify(manifest)) > MAX_MANIFEST_BYTES ||
+    screenshots.length > MAX_SCREENSHOTS ||
     screenshots.reduce(
       (total, screenshot) => total + screenshot.bytes.byteLength,
       0,
-    ) >
-      64 * 1024 * 1024
+    ) > MAX_SCREENSHOT_BYTES
   ) {
     throw new Error('Ralph raw graph exceeds upload limits.');
   }
 
-  const images = screenshots.map(({ nodeId, contentType, bytes }) => {
-    if (!/^[A-Za-z0-9-]{1,64}$/.test(nodeId)) {
-      throw new Error(`Ralph node id is not path-safe: ${nodeId}`);
-    }
-    return {
-      nodeId,
-      path: `${RAW_GRAPH_BUNDLE_IMAGE_DIR}/${nodeId}${imageExtension(contentType)}`,
-      bytes,
-    };
-  });
+  const images = screenshots.map(({ nodeId, contentType, bytes }) => ({
+    nodeId,
+    path: bundleImagePath(nodeId, contentType),
+    bytes,
+  }));
   const index: RawGraphBundleIndex = {
     manifest,
     screenshots: images.map(({ nodeId, path }) => ({ nodeId, path })),
   };
 
-  // Fixed attributes keep retries of the same attempt byte-identical.
+  // Fixed attributes keep retries of the same artifact byte-identical.
   const attrs = { mtime: new Date(0), uid: 0, gid: 0 };
   const tar = pack();
   tar.entry({ name: RAW_GRAPH_BUNDLE_INDEX, ...attrs }, JSON.stringify(index));
@@ -95,7 +113,7 @@ export async function createRawGraphBundle(
     chunks.push(chunk as Buffer);
   }
   const compressed = await promisify(gzip)(Buffer.concat(chunks));
-  if (compressed.byteLength > 64 * 1024 * 1024) {
+  if (compressed.byteLength > MAX_COMPRESSED_BYTES) {
     throw new Error('Ralph compressed raw graph bundle exceeds upload limits.');
   }
 
@@ -119,9 +137,20 @@ export async function uploadRawGraph(
     throw new Error(`Ralph app id is not valid: ${options.appId}`);
   }
   const url = new URL(
-    `/api/upload/playwright/apps/${options.appId}/attempts`,
+    `/api/upload/playwright/apps/${options.appId}/artifact`,
     options.apiUrl,
   );
+  // Environment only, and absent from the public options, because only Ralph
+  // developers run a server that accepts local storage.
+  const storage = process.env['RALPH_UPLOAD_STORAGE'] || 'gcs';
+  if (storage !== 'gcs' && storage !== 'local') {
+    throw new Error(
+      `RALPH_UPLOAD_STORAGE must be gcs or local, not ${storage}.`,
+    );
+  }
+  if (storage === 'local') {
+    url.searchParams.set('storage', 'local');
+  }
   if (
     !(
       url.protocol === 'https:' ||
@@ -134,7 +163,7 @@ export async function uploadRawGraph(
     );
   }
 
-  const timeoutMs = options.timeoutMs ?? 30_000;
+  const timeoutMs = options.timeoutMs ?? 120_000;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new Error('Ralph uploadTimeoutMs must be positive and finite.');
   }
@@ -162,8 +191,10 @@ export async function uploadRawGraph(
   if (
     receipt.result !== 'ok' ||
     receipt.status !== 'received' ||
-    receipt.attemptId !== manifest.attemptId ||
+    receipt.artifactId !== manifest.artifactId ||
     typeof receipt.resultId !== 'string' ||
+    (receipt.resultUrl !== undefined &&
+      typeof receipt.resultUrl !== 'string') ||
     typeof receipt.replayed !== 'boolean'
   ) {
     throw new Error('Ralph server returned an invalid upload receipt.');

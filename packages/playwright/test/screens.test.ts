@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
-import type { RawGraphManifest } from '../src/types';
+import type { RawGraphFile } from '../src/types';
 
 type Result = {
   status: string;
@@ -69,10 +69,10 @@ async function viewport(key: string) {
   const attachment = results
     .get(key)!
     .attachments.find((item) => item.name === 'ralph-raw-graph');
-  const manifest = JSON.parse(
+  const file = JSON.parse(
     await readFile(attachment!.path, 'utf8'),
-  ) as RawGraphManifest;
-  const [node] = manifest.nodes;
+  ) as RawGraphFile;
+  const [node] = file.rawGraph.nodes;
   return node.status === 'recorded' ? node.layout.viewport : undefined;
 }
 

@@ -10,10 +10,9 @@ import type {
 } from '@playwright/test';
 
 import { loadConfig, resolveMode } from './config';
-import { Recorder } from './recorder';
+import { Recorder, REPORTER_ENV } from './recorder';
 import { applyScreenSelection } from './screens';
 import type { ConfigSnapshot, Ralph, RalphOptions } from './types';
-import { resolveUploadOptions } from './upload';
 
 export { expect, mergeTests } from '@playwright/test';
 export type { WebRalphConfig } from '@ralphralphai/config';
@@ -27,8 +26,12 @@ export type {
 export { MANIFEST_ATTACHMENT } from './recorder';
 export { ralphProjects, SCREEN_TAG_PREFIX } from './screens';
 export type { RalphProjectOptions } from './screens';
+export type { RalphReporterOptions } from './reporter';
 export type {
   RawGraphManifest,
+  RawGraph,
+  RawGraphFile,
+  RawPage,
   RawNode,
   RecordNodeOptions,
   ConfigSnapshot,
@@ -73,18 +76,22 @@ export const test: TestType<
     // _ralphScreen is specified here so that the playwright treat that it is
     // a dependency of this fixture.
     async ({ ralphOptions, _ralphConfigs, _ralphScreen }, use, testInfo) => {
-      if (
-        !testInfo.tags.includes('@ralph') ||
-        resolveMode(ralphOptions) === 'off'
-      ) {
+      const mode = resolveMode(ralphOptions);
+      if (!testInfo.tags.includes('@ralph') || mode === 'off') {
         await use(null);
         return;
       }
 
-      const upload =
-        resolveMode(ralphOptions) === 'upload'
-          ? resolveUploadOptions(ralphOptions)
-          : undefined;
+      // A sharded run's blob reports are merged, and uploaded by the Ralph
+      // reporter, in `playwright merge-reports`.
+      const reported =
+        process.env[REPORTER_ENV] ||
+        testInfo.config.reporter.some(([name]) => name === 'blob');
+      if (mode === 'upload' && !reported) {
+        throw new Error(
+          "Ralph uploads one merged graph per run from its reporter. Add ['@ralphralphai/playwright/reporter'] to `reporter` in playwright.config, or use the blob reporter and merge-reports when sharding.",
+        );
+      }
 
       const root = testInfo.config.configFile
         ? path.dirname(testInfo.config.configFile)
@@ -106,7 +113,7 @@ export const test: TestType<
         ralphOptions,
         await pending,
         testInfo,
-        upload,
+        mode,
       );
 
       try {
@@ -129,11 +136,23 @@ export const test: TestType<
         recordNode: async () => {
           checkOptIn();
         },
-        flush: async () => {},
+        waitForCapture: async () => {},
+        pause: () => {},
+        resume: () => {},
         observe: () => {
           checkOptIn();
         },
       },
+    );
+  },
+  // On the context rather than per page, so popups start out reduced too.
+  contextOptions: async ({ contextOptions, ralphOptions }, use, testInfo) => {
+    const recording =
+      testInfo.tags.includes('@ralph') && resolveMode(ralphOptions) !== 'off';
+    await use(
+      recording && ralphOptions.reduceMotion
+        ? { ...contextOptions, reducedMotion: 'reduce' }
+        : contextOptions,
     );
   },
   context: async ({ context, _ralphRecorder }, use) => {

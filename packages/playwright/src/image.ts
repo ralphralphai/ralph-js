@@ -17,7 +17,13 @@ export async function takeScreenshot(
   page: Page,
   deadline: number,
 ): Promise<Screenshot> {
-  const options = { fullPage: true, scale: 'css' } as const;
+  // Finite animations are jumped to their end state and infinite ones paused,
+  // only while the screenshot is taken.
+  const options = {
+    fullPage: true,
+    scale: 'css',
+    animations: 'disabled',
+  } as const;
   const webp = await page.screenshot({
     ...options,
     type: 'webp',

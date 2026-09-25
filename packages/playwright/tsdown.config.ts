@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/reporter.ts'],
   format: ['cjs', 'esm'],
   dts: { cjsReexport: true },
   sourcemap: true,
@@ -9,6 +9,7 @@ export default defineConfig({
   deps: {
     neverBundle: [
       '@playwright/test',
+      '@playwright/test/reporter',
       '@playwright/test/package.json',
       '@ralphralphai/config',
       '@ralphralphai/config/zod',

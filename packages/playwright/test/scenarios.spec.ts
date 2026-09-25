@@ -22,24 +22,24 @@ test('navigation flow', { tag: '@ralph' }, async ({ context, page, ralph }) => {
     route.fulfill({ contentType: 'text/html', body: navHtml }),
   );
   await page.goto('https://nav.test/start');
-  await ralph.flush();
+  await ralph.waitForCapture();
   // A link that navigates.
   await page.click('[data-follow-id="go-next"]');
   await expect(page).toHaveURL('https://nav.test/next');
-  await ralph.flush();
+  await ralph.waitForCapture();
   // A test-driven navigation.
   await page.goto('https://nav.test/back');
-  await ralph.flush();
+  await ralph.waitForCapture();
   // A link that opens a popup.
   const popupPromise = page.waitForEvent('popup');
   await page.click('[data-follow-id="open-popup"]');
   const popup = await popupPromise;
   await popup.waitForLoadState();
-  await ralph.flush();
+  await ralph.waitForCapture();
   // A route that is immediately replaced by another.
   await page.click('[data-follow-id="spa"]');
   await expect(page).toHaveURL('https://nav.test/b');
-  await ralph.flush();
+  await ralph.waitForCapture();
 });
 
 test.beforeEach(async ({ context }) => {
@@ -48,30 +48,64 @@ test.beforeEach(async ({ context }) => {
   );
 });
 
+test('paused capture', { tag: '@ralph' }, async ({ page, ralph }) => {
+  await page.goto('https://fixture.test/a');
+  await ralph.waitForCapture();
+  ralph.pause();
+  await page.goto('https://fixture.test/b');
+  await ralph.recordNode(page, { state: 'skipped' });
+  await page.goto('https://fixture.test/c');
+  ralph.resume();
+  await page.goto('https://fixture.test/d');
+  await ralph.waitForCapture();
+});
+
+test(
+  'paused capture across pages',
+  { tag: '@ralph' },
+  async ({ page, ralph }) => {
+    await page.goto('https://fixture.test/a');
+    await ralph.waitForCapture();
+    ralph.pause();
+    // B opens in a popup, which opens C in another popup.
+    const bPromise = page.waitForEvent('popup');
+    await page.evaluate(() => window.open('/b'));
+    const b = await bPromise;
+    await b.waitForLoadState();
+    const cPromise = b.waitForEvent('popup');
+    await b.evaluate(() => window.open('/c'));
+    const c = await cPromise;
+    await c.waitForLoadState();
+    ralph.resume();
+    await c.goto('https://fixture.test/d');
+    await ralph.waitForCapture();
+  },
+);
+
 test(
   'URL transitions and geometry',
   { tag: '@ralph' },
   async ({ page, ralph }) => {
     await page.goto('https://fixture.test/home');
-    await ralph.flush();
+    await ralph.waitForCapture();
     await page.goto('https://fixture.test/second');
-    await ralph.flush();
+    await ralph.waitForCapture();
     await page.evaluate(() =>
       history.pushState({}, '', '/second?step=1#details'),
     );
-    await ralph.flush();
+    await ralph.waitForCapture();
     await page.reload();
-    await ralph.flush();
+    await ralph.waitForCapture();
     await page.locator('body').evaluate((body) => {
       body.dataset.changed = 'yes';
     });
-    await ralph.flush();
+    await ralph.waitForCapture();
   },
 );
 
 test('explicit URL overrides', { tag: '@ralph' }, async ({ page, ralph }) => {
   await page.goto('https://fixture.test/cart');
-  await ralph.flush();
+  await ralph.waitForCapture();
   await page.evaluate(() => window.scrollTo(0, 600));
   await ralph.recordNode(page, {
     state: 'dialog',
@@ -115,7 +149,7 @@ test(
     }
     try {
       await page.goto('http://127.0.0.1:' + address.port + '/redirect');
-      await ralph.flush();
+      await ralph.waitForCapture();
     } finally {
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
@@ -124,14 +158,27 @@ test(
   },
 );
 
-test('superseded transitions', { tag: '@ralph' }, async ({ page, ralph }) => {
+test('same-URL history updates', { tag: '@ralph' }, async ({ page, ralph }) => {
+  // What a client router such as TanStack Router does as it starts: stamp its
+  // own state into the current entry, which fires a same-URL navigation.
+  await page.route('https://router.test/**', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><html><head><script>history.replaceState({ key: 1 }, "")</script></head><body>Router</body></html>',
+    }),
+  );
+  await page.goto('https://router.test/start');
+  await ralph.waitForCapture();
+});
+
+test('replaced transitions', { tag: '@ralph' }, async ({ page, ralph }) => {
   await page.goto('https://fixture.test/home');
-  await ralph.flush();
+  await ralph.waitForCapture();
   await page.evaluate(() => {
     history.pushState({}, '', '/intermediate');
     history.pushState({}, '', '/final');
   });
-  await ralph.flush();
+  await ralph.waitForCapture();
 });
 
 test(
@@ -139,19 +186,19 @@ test(
   { tag: '@ralph' },
   async ({ page, ralph }) => {
     await page.goto('https://fixture.test/home');
-    await ralph.flush();
+    await ralph.waitForCapture();
     const popupPromise = page.waitForEvent('popup');
     await page.evaluate(() => window.open('/popup'));
     const popup = await popupPromise;
     await popup.waitForLoadState();
-    await ralph.flush();
+    await ralph.waitForCapture();
     await page.evaluate(() => {
       const frame = document.createElement('iframe');
       frame.src = '/embedded';
       document.body.append(frame);
     });
     await expect(page.locator('iframe')).toBeVisible();
-    await ralph.flush();
+    await ralph.waitForCapture();
   },
 );
 
@@ -166,14 +213,14 @@ test(
     ralph.observe(context);
     const page = await context.newPage();
     await page.goto('https://fixture.test/custom');
-    await ralph.flush();
+    await ralph.waitForCapture();
     await context.close();
   },
 );
 
 test('retry attempts', { tag: '@ralph' }, async ({ page, ralph }, info) => {
   await page.goto('https://fixture.test/retry');
-  await ralph.flush();
+  await ralph.waitForCapture();
   expect(info.retry).toBe(1);
 });
 
@@ -203,14 +250,17 @@ test.describe('off mode', () => {
 
 test.describe('readiness', () => {
   test.use({
-    ralphOptions: {
-      mode: 'local',
-      config: { screenSizes: [] },
-      settleMs: 0,
-      recordTimeoutMs: 1000,
-      ready: async (page) => {
-        await page.waitForFunction(() => document.body.dataset.ready === 'yes');
-      },
+    ralphOptions: async ({ ralphOptions }, use) => {
+      await use({
+        ...ralphOptions,
+        mode: 'local',
+        recordTimeoutMs: 1000,
+        ready: async (page) => {
+          await page.waitForFunction(
+            () => document.body.dataset.ready === 'yes',
+          );
+        },
+      });
     },
   });
   test('readiness hook', { tag: '@ralph' }, async ({ page, ralph }) => {
@@ -218,11 +268,64 @@ test.describe('readiness', () => {
     await page.evaluate(() => {
       document.body.dataset.ready = 'yes';
     });
-    await ralph.flush();
+    await ralph.waitForCapture();
   });
   test('readiness timeout is bounded', { tag: '@ralph' }, async ({ page }) => {
     test.fail();
     await page.goto('https://fixture.test/never-ready');
+  });
+});
+
+const animatedHtml =
+  '<!doctype html><html><head><style>body { margin: 0 } #slide { position: absolute; left: 20px; top: 40px; width: 120px; height: 32px } #spin { width: 10px; height: 10px; animation: spin 1s linear infinite } @keyframes spin { to { transform: rotate(360deg) } }</style></head><body><div id="slide" data-track-id="slide"></div><div id="spin"></div><script>document.getElementById("slide").animate([{ transform: "translateX(0)" }, { transform: "translateX(100px)" }], { duration: 600, fill: "forwards" })</script></body></html>';
+
+test(
+  'infinite animations resume after the screenshot',
+  { tag: '@ralph' },
+  async ({ page, ralph }) => {
+    await page.route('**/*', (route) =>
+      route.fulfill({ contentType: 'text/html', body: animatedHtml }),
+    );
+    await page.goto('https://fixture.test/animated');
+    await ralph.waitForCapture();
+    expect(
+      await page.evaluate(() =>
+        document
+          .getAnimations()
+          .some((animation) => animation.playState === 'running'),
+      ),
+    ).toBe(true);
+  },
+);
+
+test.describe('reduced motion', () => {
+  test.use({
+    ralphOptions: async ({ ralphOptions }, use) => {
+      await use({ ...ralphOptions, reduceMotion: true });
+    },
+  });
+  test(
+    'reduced motion waits for animations',
+    { tag: '@ralph' },
+    async ({ page, ralph }) => {
+      await page.route('**/*', (route) =>
+        route.fulfill({ contentType: 'text/html', body: animatedHtml }),
+      );
+      await page.goto('https://fixture.test/reduced');
+      expect(
+        await page.evaluate(
+          () => matchMedia('(prefers-reduced-motion: reduce)').matches,
+        ),
+      ).toBe(true);
+      await ralph.waitForCapture();
+    },
+  );
+  test('reduced motion only applies to Ralph tests', async ({ page }) => {
+    expect(
+      await page.evaluate(
+        () => matchMedia('(prefers-reduced-motion: reduce)').matches,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -243,7 +346,7 @@ combined(
       route.fulfill({ contentType: 'text/html', body: html }),
     );
     await page.goto('https://fixture.test/composed');
-    await ralph.flush();
+    await ralph.waitForCapture();
   },
 );
 

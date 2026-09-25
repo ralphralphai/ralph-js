@@ -10,7 +10,7 @@ The package records **raw nodes**. The server builds the graph.
 - A raw node is one page state as the test saw it: URL, screenshot,
   tracked-element geometry, and `previousNodeId`, the node it was reached from.
 - The client doesn't normalize or merge anything. The same page visited twice
-  gives two raw nodes, and superseded and failed recordings are kept.
+  gives two raw nodes, and uncaptured ones are kept.
 - The server normalizes URLs, applies `variantRules` and `hostOverrides` from
   the config snapshot, merges raw nodes into graph nodes, and turns
   `previousNodeId` links into edges.
@@ -25,7 +25,8 @@ code in the app under test, and attribution by timing was unreliable.
 | File                                   | What                                                                                                        |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | [`src/index.ts`](src/index.ts)         | Public exports and the extended `test`: the Playwright fixtures that wire the recorder in.                  |
-| [`src/recorder.ts`](src/recorder.ts)   | `Recorder`: watches tabs, queues and takes recordings, links nodes, writes and uploads the manifest.        |
+| [`src/recorder.ts`](src/recorder.ts)   | `Recorder`: watches tabs, queues and takes recordings, links nodes, writes the test's raw graph.            |
+| [`src/reporter.ts`](src/reporter.ts)   | `RalphReporter`: merges every test's raw graph into the run's manifest, writes it, and uploads it once.     |
 | [`src/layout.ts`](src/layout.ts)       | Reads viewport, document size, scroll, device pixel ratio, and `data-track-id` boxes from the page.         |
 | [`src/image.ts`](src/image.ts)         | Full-page screenshot as WebP with a PNG fallback; reads image dimensions from the headers.                  |
 | [`src/upload.ts`](src/upload.ts)       | Builds the `.tar.gz` bundle and POSTs it; resolves upload options.                                          |
@@ -44,7 +45,7 @@ its function, which is why fixtures with no dependencies still write `{}`.
 | `ralphOptions`   | test   |      | The user's options.                                                                                                   |
 | `_ralphConfigs`  | worker |      | Caches the config load per source, so each worker validates `ralph.jsonc` once.                                         |
 | `_ralphScreen`   | test   | yes  | Applies `@ralph-screen:` tags; may skip the test. Runs in every mode.                                                  |
-| `_ralphRecorder` | test   | yes  | Creates a `Recorder` for `@ralph` tests when the mode isn't `off`; `finish()`es it in teardown. 30 s teardown budget for the upload. |
+| `_ralphRecorder` | test   | yes  | Creates a `Recorder` for `@ralph` tests when the mode isn't `off`; `finish()`es it in teardown. In `upload` mode, throws unless the reporter is on. |
 | `ralph`          | test   |      | What tests receive: the recorder, or a stand-in that is a no-op in `off` mode and throws "add the @ralph tag" otherwise. |
 | `context`        | test   |      | Override of Playwright's: `observe()`s the context before the test and `stopContext()`s it after.                      |
 
@@ -55,7 +56,7 @@ Notes:
   `page` pulls it in through `page → context`.
 - `_ralphRecorder` lists `_ralphScreen` as a dependency without using it. That
   forces screen selection to run first, so a skipped test never builds a
-  recorder or writes a manifest.
+  recorder or writes a raw graph.
 - `stopContext` runs in the `context` teardown because Playwright's base
   `context` fixture closes its pages right after; pending recordings still need
   them open.
@@ -80,10 +81,11 @@ event, `page.opener()`, fixtures), so identity lookups work.
 
 ### One recording
 
-`enqueue` builds the request (id, sequence, requested time, actual and recorded
-URL, trigger, optional state) and chains `record` onto the tab's `tail`.
+`enqueueCreateNodeRequest` builds a `CreateNodeRequest` (id, sequence,
+requested time, actual and recorded URL, trigger, optional state) and chains
+`createNode` onto the tab's `tail`.
 
-`record`:
+`createNode`:
 
 1. Starts a deadline of `recordTimeoutMs`. `wait()` races each step against it.
 2. For automatic (`url-change`) recordings only: waits for `domcontentloaded`,
@@ -93,9 +95,10 @@ URL, trigger, optional state) and chains `record` onto the tab's `tail`.
    URL changed) or closed.
 5. On success, writes the screenshot and pushes a `captured` node.
    `geometryStable` is whether the two layout reads match.
-6. On failure, pushes a `superseded` node if the tab navigated away, otherwise
-   `failed`, with the error message. Explicit recordings rethrow; automatic
-   ones don't, and `finish` fails the test instead.
+6. On failure, pushes an `uncaptured` node with the error `message`, and
+   `reason` `navigated-away` if the tab navigated or closed, otherwise `error`.
+   Explicit recordings rethrow. For automatic ones, `finish` fails the test on
+   `error` only.
 
 ### Linking nodes
 
@@ -106,8 +109,9 @@ every opener is known:
    popup's first node gets its opener tab's last node requested before it
    (compared by `requestedAtMs`, so later navigations in the opener don't
    count).
-2. Superseded predecessors are skipped, so `/start → /a (replaced) → /b`
-   records `/b ← /start`.
+2. Uncaptured nodes stay in the chain, so `/start → /a (replaced) → /b`
+   records `/b ← /a ← /start`. They are regular nodes in the server's graph,
+   without a screenshot.
 
 ### Layout
 
@@ -127,26 +131,58 @@ in either dimension, and Chromium signals that with an empty buffer rather than
 an error, so an empty result falls back to PNG. Dimensions are parsed from the
 image headers (`VP8 `, `VP8L`, `VP8X` for WebP; `IHDR` for PNG).
 
-## Manifest
+## Raw graphs and the manifest
 
-`RawGraphManifest` in [`src/types.ts`](src/types.ts), `formatVersion: 1`.
+Types in [`src/types.ts`](src/types.ts), `formatVersion: 1`.
 
-- `producer`, `runId`, `buildId`, `attemptId`, and `test` identify where it came
-  from. `attemptId` is new for every recorder, so retries are distinct.
-- `config` is the `ConfigSnapshot`: the parsed config without schema defaults
-  applied, plus the `@ralphralphai/config` version.
-- `pages` lists every tab: `pageId`, `contextId`, `browserName`,
-  `openerPageId`.
-- `nodes` is sorted by page, then sequence.
-- `test.status` is `failed` when the test passed but a recording failed, since
-  `finish` fails the test after the manifest is written.
-- `complete` is true only when the test passed, there's at least one node, and
-  every node was captured with stable geometry. Another fixture failing later
-  isn't reflected; a reporter would have to reconcile that.
+**Per test.** `finish` writes a `RawGraphFile` to `ralph/raw_graph.json` in the
+test's output directory and attaches it as `ralph-raw-graph`:
+
+- `rawGraph` is the test's `RawGraph`: its metadata, `pages` (every tab:
+  `pageId`, `browserName`, `openerPageId`), `nodes` sorted by page
+  then sequence, and `complete`.
+- Alongside it, what the reporter needs to merge and upload: `producer`,
+  `runId`, `buildId`, the `config` snapshot, and the test's `mode` (`local` or
+  `upload`). The upload target is the reporter's, not the test's.
+- `status` is `failed` when the test passed but a recording failed, since
+  `finish` fails the test after the file is written.
+
+**Per run.** Workers are separate processes, so only a reporter sees every
+test. `RalphReporter` reads each test's `ralph-raw-graph` attachment in
+`onTestEnd`, keyed by test id so a retry replaces the attempt before it. In
+`onEnd` it builds one `RawGraphManifest`:
+
+- `artifactId` is new for every run, so each run (or shard, in `shard`) is its
+  own artifact.
+- `rawGraphs` holds each test's final attempt, sorted by project and title. Its
+  `status` is replaced with the result's final one, and `complete` also needs
+  that status to be `passed`, so failures after the recorder finished, e.g. in
+  another fixture's teardown, are reflected.
+- `screenshot.path` is rewritten to the node's path in the bundle.
+- `config`, `runId`, and `buildId` must be the same for every test, or the run
+  fails.
+- It is written to `ralph/` in the first project's output directory (or the
+  reporter's `outputDir` option) in the bundle's layout. It is uploaded when
+  the reporter's own mode is `upload` or any test's is, to the reporter's
+  `apiUrl` and `appId` (or `RALPH_API_URL` and `RALPH_APP_ID`), with
+  `RALPH_UPLOAD_KEY`. In `upload` mode the constructor resolves these, so
+  missing credentials stop the run before any test.
+
+The reporter sets `RALPH_PLAYWRIGHT_REPORTER` in its constructor, before any
+worker starts, and workers inherit it. That is how the fixture tells the
+reporter is on and refuses `upload` mode without it, instead of silently
+uploading nothing. The `blob` reporter also satisfies it: a sharded run's blob
+reports carry every attachment, and `playwright merge-reports` replays them
+through the Ralph reporter in one process, which then sees every shard's tests
+and uploads once. `config.shard` is null there, so the merged run has no
+`shard`.
+
+`linkPreviousNodes` links nodes within a test only. The server builds one graph
+from every raw graph by merging nodes on their URLs.
 
 ## Upload
 
-`POST {apiUrl}/api/upload/playwright/apps/{appId}/attempts` with
+`POST {apiUrl}/api/upload/playwright/apps/{appId}/artifact` with
 `Authorization: Bearer <uploadKey>` and an `application/gzip` body:
 
 ```
@@ -154,18 +190,28 @@ raw_graph.json               { manifest, screenshots: [{ nodeId, path }] }
 assets/images/<nodeId>.webp  (or .png)
 ```
 
-- The tar entries have fixed `mtime`, `uid`, and `gid`, so the same attempt
+- The tar entries have fixed `mtime`, `uid`, and `gid`, so the same artifact
   always produces the same bytes. The server relies on this: an identical
   re-upload returns `replayed: true` with the original `resultId`, and
-  different contents under the same `attemptId` are rejected.
+  different contents under the same `artifactId` are rejected.
 - `nodeId` and `appId` are validated as path-safe before use.
 - `apiUrl` must be `https:`, or `http:` for loopback hosts only.
 - `redirect: 'error'`, so the key is never sent to a redirect target.
-- The receipt must echo the `attemptId` and include a `resultId`, or the upload
+- `RALPH_UPLOAD_STORAGE=local` adds `?storage=local`, so the server writes the
+  images to a temp directory on its own disk and hands back file paths instead
+  of image URLs. For Ralph developers only, as a stopgap until local mode
+  renders its own report: it is not a public option, and the server rejects it
+  with `400` unless `allowLocalArtifactStorage` is on. Unset or `gcs` sends no
+  parameter, so the bucket is the default.
+- The receipt must echo the `artifactId` and include a `resultId`, or the upload
   is treated as failed.
-- Limits: 2 MiB manifest JSON, 500 screenshots, 64 MiB of screenshots, 64 MiB
-  compressed. The server also caps nodes at 5,000.
-- No automatic HTTP retries.
+- The receipt's `resultUrl`, when the server has a dashboard configured, is
+  what the reporter prints. It also writes the receipt to
+  `upload_receipt.json`.
+- Limits: 16 MiB manifest JSON, 5,000 screenshots, 256 MiB of screenshots,
+  256 MiB compressed. The server also caps nodes at 20,000 per run and 5,000
+  per test.
+- No automatic HTTP retries. The default timeout is 120 s.
 
 `uploadRawGraph(manifest, screenshots, { apiUrl, appId, uploadKey, timeoutMs? })`
 and `createRawGraphBundle(manifest, screenshots)` are exported so a saved result
@@ -207,6 +253,7 @@ pnpm --filter @ralphralphai/playwright test:browser
   `test/browser.test.ts` and `test/screens.test.ts`. The scenarios import from
   `dist/`, so rebuild after changing `src/`.
 - The suite includes a deliberately failing first attempt, to check that retries
-  get separate manifests.
+  get separate raw graphs and only the final one is merged.
+- `test/playwright.config.ts` loads the reporter from `../dist/reporter.mjs`.
 - After changing `@ralphralphai/config`'s schema, rebuild it before running
   these tests, or they validate against the old one.

@@ -20,27 +20,15 @@ const manifest: RawGraphManifest = {
     version: '0.1.0',
     playwrightVersion: '1.62.1',
   },
-  attemptId: randomUUID(),
-  test: {
-    id: 'test',
-    titlePath: ['example'],
-    project: 'chromium',
-    retry: 0,
-    repeatEachIndex: 0,
-    workerIndex: 0,
-    parallelIndex: 0,
-    shard: null,
-    status: 'passed',
-    expectedStatus: 'passed',
-  },
+  artifactId: randomUUID(),
+  shard: null,
   startedAt: '2026-09-23T12:00:00.000Z',
   finishedAt: '2026-09-23T12:00:00.000Z',
   config: {
     config: { screenSizes: [] },
     packageVersion: '2.0.0',
   },
-  pages: [],
-  nodes: [],
+  rawGraphs: [],
   complete: false,
 };
 
@@ -130,7 +118,7 @@ it('uploads with bearer authentication and verifies the server receipt', async (
       JSON.stringify({
         result: 'ok',
         status: 'received',
-        attemptId: manifest.attemptId,
+        artifactId: manifest.artifactId,
         resultId: 'result-1',
         replayed: requests.length > 1,
       }),
@@ -144,16 +132,30 @@ it('uploads with bearer authentication and verifies the server receipt', async (
       appId: 'app12345',
       uploadKey: 'secret',
     };
+    vi.stubEnv('RALPH_UPLOAD_STORAGE', undefined);
     expect((await uploadRawGraph(manifest, [], options)).replayed).toBe(false);
+    vi.stubEnv('RALPH_UPLOAD_STORAGE', 'gcs');
     expect((await uploadRawGraph(manifest, [], options)).replayed).toBe(true);
-    expect(requests).toEqual(
-      Array(2).fill({
-        url: '/api/upload/playwright/apps/app12345/attempts',
+    vi.stubEnv('RALPH_UPLOAD_STORAGE', 'local');
+    await uploadRawGraph(manifest, [], options);
+    vi.stubEnv('RALPH_UPLOAD_STORAGE', 'disk');
+    await expect(uploadRawGraph(manifest, [], options)).rejects.toThrow(
+      'gcs or local',
+    );
+    expect(requests).toEqual([
+      ...Array(2).fill({
+        url: '/api/upload/playwright/apps/app12345/artifact',
         authorization: 'Bearer secret',
         contentType: 'application/gzip',
         bundle: { manifest, screenshots: [] },
       }),
-    );
+      {
+        url: '/api/upload/playwright/apps/app12345/artifact?storage=local',
+        authorization: 'Bearer secret',
+        contentType: 'application/gzip',
+        bundle: { manifest, screenshots: [] },
+      },
+    ]);
   } finally {
     server.close();
     await once(server, 'close');
@@ -200,7 +202,7 @@ it.each([401, 409, 500, 302, 200])(
         JSON.stringify({
           result: 'ok',
           status: 'received',
-          attemptId: 'wrong',
+          artifactId: 'wrong',
           replayed: false,
         }),
       );

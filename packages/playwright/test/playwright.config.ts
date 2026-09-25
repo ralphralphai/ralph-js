@@ -9,7 +9,10 @@ export default defineConfig<RalphFixtures>({
   preserveOutput: 'always',
   workers: 2,
   retries: 1,
-  reporter: [['json', { outputFile: process.env['RALPH_TEST_REPORT'] }]],
+  reporter: [
+    ['json', { outputFile: process.env['RALPH_TEST_REPORT'] }],
+    ['../dist/reporter.mjs'],
+  ],
   use: {
     browserName: 'chromium',
     viewport: { width: 500, height: 400 },

@@ -3,14 +3,12 @@ import type { WebRalphConfig } from '@ralphralphai/config';
 
 export type RalphOptions = {
   mode?: 'off' | 'local' | 'upload';
-  apiUrl?: string;
-  appId?: string;
-  uploadTimeoutMs?: number;
   config?: WebRalphConfig;
   configPath?: string;
   runId?: string;
   buildId?: string;
   settleMs?: number;
+  reduceMotion?: boolean;
   recordTimeoutMs?: number;
   ready?: (page: Page, signal: AbortSignal) => Promise<void>;
 };
@@ -19,7 +17,9 @@ export type RecordNodeOptions = { state?: string; url?: string };
 
 export type Ralph = {
   recordNode(page: Page, options?: RecordNodeOptions): Promise<void>;
-  flush(): Promise<void>;
+  waitForCapture(): Promise<void>;
+  pause(): void;
+  resume(): void;
   observe(context: BrowserContext): void;
 };
 
@@ -50,8 +50,8 @@ export type RawNode = {
   state?: string;
   /**
    * The node this page state was reached from: the previous one on the same
-   * page, or for a popup's first node, its opener's latest. Superseded nodes
-   * are skipped.
+   * page, or for a popup's first node, its opener's latest. Superseded and
+   * failed nodes are included; the server walks past the ones it doesn't show.
    */
   previousNodeId?: string;
 } & (
@@ -69,7 +69,18 @@ export type RawNode = {
         contentType: 'image/webp' | 'image/png';
       };
     }
-  | { status: 'superseded' | 'failed'; reason: string }
+  | {
+      /** The page was visited but has no screenshot. */
+      status: 'uncaptured';
+      /**
+       * `navigated-away`: the tab navigated or closed first, e.g. the test
+       * moved on, a redirect, or a route replaced at once. `error`: the
+       * recording failed, e.g. it timed out.
+       */
+      reason: 'navigated-away' | 'error';
+      /** The error as thrown. */
+      message: string;
+    }
 );
 
 export type ConfigSnapshot = {
@@ -77,37 +88,67 @@ export type ConfigSnapshot = {
   packageVersion: string;
 };
 
-export type RawGraphManifest = {
+export type RawGraphProducer = {
+  name: '@ralphralphai/playwright';
+  version: string;
+  playwrightVersion: string;
+};
+
+export type RawPage = {
+  /** Unique within its test only. */
+  pageId: string;
+  browserName?: string;
+  openerPageId?: string;
+};
+
+/** One test's recordings. Its nodes link only to each other. */
+export type RawGraph = {
+  id: string;
+  titlePath: string[];
+  project: string;
+  retry: number;
+  repeatEachIndex: number;
+  workerIndex: number;
+  parallelIndex: number;
+  status: string;
+  expectedStatus: string;
+  startedAt: string;
+  finishedAt: string;
+  pages: RawPage[];
+  nodes: RawNode[];
+  /** The test passed and every node was recorded with stable geometry. */
+  complete: boolean;
+};
+
+/**
+ * What a test writes and attaches as `ralph-raw-graph`, for the reporter to
+ * merge into the run's `RawGraphManifest`.
+ */
+export type RawGraphFile = {
   formatVersion: 1;
-  producer: {
-    name: '@ralphralphai/playwright';
-    version: string;
-    playwrightVersion: string;
-  };
+  producer: RawGraphProducer;
   runId?: string;
   buildId?: string;
-  attemptId: string;
-  test: {
-    id: string;
-    titlePath: string[];
-    project: string;
-    retry: number;
-    repeatEachIndex: number;
-    workerIndex: number;
-    parallelIndex: number;
-    shard: { current: number; total: number } | null;
-    status: string;
-    expectedStatus: string;
-  };
+  config: ConfigSnapshot;
+  /** The test's mode. The reporter uploads the run if any test's is `upload`. */
+  mode: 'local' | 'upload';
+  rawGraph: RawGraph;
+};
+
+/** One Playwright run (or shard): every recorded test's raw graph, merged. */
+export type RawGraphManifest = {
+  formatVersion: 1;
+  producer: RawGraphProducer;
+  runId?: string;
+  buildId?: string;
+  /** New for every run, so each run is its own artifact. */
+  artifactId: string;
+  shard: { current: number; total: number } | null;
   startedAt: string;
   finishedAt: string;
   config: ConfigSnapshot;
-  pages: {
-    pageId: string;
-    contextId: string;
-    browserName?: string;
-    openerPageId?: string;
-  }[];
-  nodes: RawNode[];
+  /** The final attempt of each recorded test, one raw graph each. */
+  rawGraphs: RawGraph[];
+  /** Every raw graph is complete. */
   complete: boolean;
 };

@@ -9,7 +9,7 @@ test(
   'off needs no config and no browser',
   { tag: '@ralph' },
   async ({ ralph }) => {
-    await ralph.flush();
+    await ralph.waitForCapture();
   },
 );
 
