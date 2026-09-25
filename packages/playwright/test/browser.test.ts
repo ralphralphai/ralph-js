@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
@@ -397,44 +397,57 @@ const playwrightCli = () =>
     'cli.js',
   );
 
-it('uploads the whole run as one compressed artifact and prints its link', async () => {
-  const server = await startUploadServer();
-  try {
-    const { stdout } = await promisify(execFile)(
-      process.execPath,
-      [playwrightCli(), 'test', '--config', 'test/playwright.config.ts'],
-      {
-        cwd: path.resolve(import.meta.dirname, '..'),
-        env: {
-          ...process.env,
-          ...server.env,
-          RALPH_TEST_UPLOAD: '1',
-          RALPH_TEST_OUTPUT: path.join(output, 'upload'),
-          RALPH_TEST_REPORT: path.join(output, 'upload-report.json'),
+it.each(['always', 'failures-only', 'never'])(
+  'uploads the whole run with preserveOutput=%s and prints its link',
+  async (preserveOutput) => {
+    const server = await startUploadServer();
+    try {
+      const { stdout } = await promisify(execFile)(
+        process.execPath,
+        [playwrightCli(), 'test', '--config', 'test/playwright.config.ts'],
+        {
+          cwd: path.resolve(import.meta.dirname, '..'),
+          env: {
+            ...process.env,
+            ...server.env,
+            RALPH_TEST_UPLOAD: '1',
+            RALPH_TEST_PRESERVE_OUTPUT: preserveOutput,
+            RALPH_TEST_OUTPUT: path.join(output, 'upload'),
+            RALPH_TEST_REPORT: path.join(output, 'upload-report.json'),
+          },
+          timeout: 80_000,
         },
-        timeout: 80_000,
-      },
-    );
-    expect(server.received).toHaveLength(1);
-    const [run] = server.received;
-    // Tests in local mode are part of the run too.
-    expect(run.rawGraphs).toHaveLength(merged.manifest.rawGraphs.length);
-    expect(
-      run.rawGraphs.find((graph) => graph.titlePath.includes('retry attempts')),
-    ).toMatchObject({ retry: 1, status: 'passed' });
-    expect(stdout).toContain('https://dash.example/uploads/result-1');
-    expect(
-      JSON.parse(
-        await readFile(
-          path.join(output, 'upload', 'ralph', 'upload_receipt.json'),
-          'utf8',
+      );
+      expect(server.received).toHaveLength(1);
+      const [run] = server.received;
+      // Tests in local mode are part of the run too.
+      expect(run.rawGraphs).toHaveLength(merged.manifest.rawGraphs.length);
+      expect(
+        run.rawGraphs.find((graph) =>
+          graph.titlePath.includes('retry attempts'),
         ),
-      ),
-    ).toMatchObject({ resultId: 'result-1' });
-  } finally {
-    await server.close();
-  }
-});
+      ).toMatchObject({ retry: 1, status: 'passed' });
+      expect(stdout).toContain('https://dash.example/uploads/result-1');
+      if (preserveOutput === 'never') {
+        expect(
+          (await readdir(path.join(output, 'upload'))).filter(
+            (name) => name !== 'ralph' && name !== '.last-run.json',
+          ),
+        ).toEqual([]);
+      }
+      expect(
+        JSON.parse(
+          await readFile(
+            path.join(output, 'upload', 'ralph', 'upload_receipt.json'),
+            'utf8',
+          ),
+        ),
+      ).toMatchObject({ resultId: 'result-1' });
+    } finally {
+      await server.close();
+    }
+  },
+);
 
 it('merges a sharded run from its blob reports and uploads it once', async () => {
   const blobs = path.join(output, 'blobs');
@@ -460,6 +473,7 @@ it('merges a sharded run from its blob reports and uploads it once', async () =>
           ...process.env,
           RALPH_TEST_UPLOAD: '1',
           RALPH_UPLOAD_KEY: '',
+          RALPH_TEST_PRESERVE_OUTPUT: 'never',
           RALPH_TEST_OUTPUT: path.join(output, `shard-${shard}`),
           PLAYWRIGHT_BLOB_OUTPUT_FILE: path.join(blobs, `report-${shard}.zip`),
         },

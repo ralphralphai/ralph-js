@@ -48,8 +48,8 @@ export type RalphReporterOptions = {
 type Collected = {
   file: RawGraphFile;
   status: TestResult['status'];
-  /** Screenshot attachment paths, by attachment name. */
-  attachments: Map<string, string>;
+  /** Screenshot attachment paths or preserved bodies, by attachment name. */
+  attachments: Map<string, string | Buffer>;
 };
 
 /**
@@ -106,7 +106,7 @@ export default class RalphReporter implements Reporter {
         images.map(
           async ({ source, ...image }): Promise<RawGraphScreenshot> => ({
             ...image,
-            bytes: await readFile(source),
+            bytes: typeof source === 'string' ? await readFile(source) : source,
           }),
         ),
       );
@@ -152,7 +152,7 @@ export default class RalphReporter implements Reporter {
   /** Merges the tests into one manifest, with where to read their screenshots. */
   private merge(collected: Collected[]): {
     manifest: RawGraphManifest;
-    images: (Omit<RawGraphScreenshot, 'bytes'> & { source: string })[];
+    images: (Omit<RawGraphScreenshot, 'bytes'> & { source: string | Buffer })[];
   } {
     const [first] = collected;
     const same = (pick: (file: RawGraphFile) => unknown, what: string) => {
@@ -168,8 +168,9 @@ export default class RalphReporter implements Reporter {
     same((file) => file.config, 'Ralph config');
     same((file) => [file.runId, file.buildId], 'runId and buildId');
 
-    const images: (Omit<RawGraphScreenshot, 'bytes'> & { source: string })[] =
-      [];
+    const images: (Omit<RawGraphScreenshot, 'bytes'> & {
+      source: string | Buffer;
+    })[] = [];
     const rawGraphs = collected
       .map(({ file, status, attachments }): RawGraph => {
         const nodes = file.rawGraph.nodes.map((node) => {
@@ -273,16 +274,17 @@ async function collect(result: TestResult): Promise<Collected | undefined> {
   const manifest = result.attachments.find(
     (item) => item.name === MANIFEST_ATTACHMENT,
   );
-  if (!manifest?.path) {
+  if (!manifest || (!manifest.body && !manifest.path)) {
     return undefined;
   }
   const file = JSON.parse(
-    await readFile(manifest.path, 'utf8'),
+    manifest.body?.toString('utf8') ?? (await readFile(manifest.path!, 'utf8')),
   ) as RawGraphFile;
-  const attachments = new Map<string, string>();
-  for (const { name, path: attachmentPath } of result.attachments) {
-    if (attachmentPath) {
-      attachments.set(name, attachmentPath);
+  const attachments = new Map<string, string | Buffer>();
+  for (const { name, path: attachmentPath, body } of result.attachments) {
+    const source = body ?? attachmentPath;
+    if (source !== undefined) {
+      attachments.set(name, source);
     }
   }
   return { file, status: result.status, attachments };

@@ -459,7 +459,11 @@ export class Recorder implements Ralph {
     await mkdir(this.testInfo.outputPath(OUTPUT_DIR), { recursive: true });
     await writeFile(this.testInfo.outputPath(path), image.bytes);
     await this.testInfo.attach(attachmentName, {
-      path: this.testInfo.outputPath(path),
+      // Playwright can delete test output immediately after testEnd, before
+      // the reporter merges it. Body attachments survive that cleanup.
+      ...(this.testInfo.config.preserveOutput === 'always'
+        ? { path: this.testInfo.outputPath(path) }
+        : { body: image.bytes }),
       contentType: image.contentType,
     });
 
@@ -533,10 +537,13 @@ export class Recorder implements Ralph {
 
   private async writeRawGraph(file: RawGraphFile): Promise<void> {
     const path = this.testInfo.outputPath(OUTPUT_DIR, 'raw_graph.json');
+    const body = JSON.stringify(file, null, 2) + '\n';
     await mkdir(this.testInfo.outputPath(OUTPUT_DIR), { recursive: true });
-    await writeFile(path, JSON.stringify(file, null, 2) + '\n');
+    await writeFile(path, body);
     await this.testInfo.attach(MANIFEST_ATTACHMENT, {
-      path,
+      ...(this.testInfo.config.preserveOutput === 'always'
+        ? { path }
+        : { body }),
       contentType: 'application/json',
     });
   }

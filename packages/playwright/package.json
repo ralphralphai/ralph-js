@@ -1,6 +1,6 @@
 {
   "name": "@ralphralphai/playwright",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Opt-in Playwright fixtures that capture page screenshots and tracked-element geometry for Ralph.",
   "license": "Apache-2.0",
   "author": "RalphRalph AI",

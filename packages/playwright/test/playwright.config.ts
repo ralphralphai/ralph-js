@@ -6,7 +6,11 @@ export default defineConfig<RalphFixtures>({
   testDir: '.',
   testMatch: ['scenarios.spec.ts', 'no-browser.spec.ts'],
   outputDir: process.env['RALPH_TEST_OUTPUT'],
-  preserveOutput: 'always',
+  preserveOutput:
+    (process.env['RALPH_TEST_PRESERVE_OUTPUT'] as
+      | 'always'
+      | 'failures-only'
+      | 'never') ?? 'always',
   workers: 2,
   retries: 1,
   reporter: [
