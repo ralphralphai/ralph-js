@@ -164,8 +164,8 @@ test. `RalphReporter` reads each test's `ralph-raw-graph` attachment in
 - It is written to `ralph/` in the first project's output directory (or the
   reporter's `outputDir` option) in the bundle's layout. It is uploaded when
   the reporter's own mode is `upload` or any test's is, to the reporter's
-  `apiUrl` and `appId` (or `RALPH_API_URL` and `RALPH_APP_ID`), with
-  `RALPH_UPLOAD_KEY`. In `upload` mode the constructor resolves these, so
+  `apiUrl` and `appId` (or `RALPH_API_URL`, else `https://api.ralphralph.ai`,
+  and `RALPH_APP_ID`), with `RALPH_UPLOAD_KEY`. In `upload` mode the constructor resolves these, so
   missing credentials stop the run before any test.
 
 The reporter sets `RALPH_PLAYWRIGHT_REPORTER` in its constructor, before any
@@ -182,43 +182,62 @@ from every raw graph by merging nodes on their URLs.
 
 ## Upload
 
-`POST {apiUrl}/api/upload/playwright/apps/{appId}/artifact` with
-`Authorization: Bearer <uploadKey>` and an `application/gzip` body:
+Two requests, both with `Authorization: Bearer <uploadKey>`:
 
-```
-raw_graph.json               { manifest, screenshots: [{ nodeId, path }] }
-assets/images/<nodeId>.webp  (or .png)
-```
+1. `POST {apiUrl}/api/upload/artifact/prepare` with the JSON body
+   `{ "externalAppId": appId }`. The server reserves an artifact and answers
+   `{ result: 'ok', artifactId, resultUrl? }`. The result page works from this
+   point, showing the run as uploading, then processing, then its graph, so the
+   reporter prints the link before it uploads anything.
+2. `POST {apiUrl}/api/upload/web/apps/{appId}/artifact/{artifactId}` with an
+   `application/gzip` body, streamed as it is built:
 
+   ```
+   raw_graph.json               { manifest, screenshots: [{ nodeId, path }] }
+   assets/images/<nodeId>.webp  (or .png)
+   ```
+
+   The manifest's `artifactId` must be the prepared one; the server refuses a
+   bundle naming any other. It answers `{ result: 'ok', status: 'queued',
+   artifactId, resultUrl?, replayed }` once the bundle is stored, and processes
+   it afterwards, so an invalid bundle shows as failed on the result page rather
+   than as an HTTP error.
+
+- The reporter merges the tests before preparing, so a run that cannot be
+  merged never reserves an artifact. The local copy is written after preparing
+  and names the prepared artifact. If preparing fails, it is written with a
+  random `artifactId` and the error says where.
 - The tar entries have fixed `mtime`, `uid`, and `gid`, so the same artifact
-  always produces the same bytes. The server relies on this: an identical
-  re-upload returns `replayed: true` with the original `resultId`, and
-  different contents under the same `artifactId` are rejected.
+  always produces the same bytes.
+- Once one upload of an artifact is queued, the server answers any other with
+  `replayed: true` without reading it. An upload that failed in transit can be
+  retried to the same artifact.
 - `nodeId` and `appId` are validated as path-safe before use.
 - `apiUrl` must be `https:`, or `http:` for loopback hosts only.
 - `redirect: 'error'`, so the key is never sent to a redirect target.
-- `RALPH_UPLOAD_STORAGE=local` adds `?storage=local`, so the server writes the
-  images to a temp directory on its own disk and hands back file paths instead
-  of image URLs. For Ralph developers only, as a stopgap until local mode
-  renders its own report: it is not a public option, and the server rejects it
-  with `400` unless `allowLocalArtifactStorage` is on. Unset or `gcs` sends no
-  parameter, so the bucket is the default.
-- The receipt must echo the `artifactId` and include a `resultId`, or the upload
-  is treated as failed.
-- The receipt's `resultUrl`, when the server has a dashboard configured, is
-  what the reporter prints. It also writes the receipt to
-  `upload_receipt.json`.
+- `RALPH_UPLOAD_STORAGE=local` adds `?storage=local` to the upload, so the
+  server writes the images to a temp directory on its own disk and hands back
+  file paths instead of image URLs. For Ralph developers only, as a stopgap
+  until local mode renders its own report: it is not a public option, and the
+  server rejects it with `400` unless `allowLocalArtifactStorage` is on. Unset
+  or `gcs` sends no parameter, so the bucket is the default.
+- The receipt must echo the `artifactId`, or the upload is treated as failed.
+- The reporter prints the server's `resultUrl` when it sends one, else
+  `https://dash.ralphralph.ai/uploads/{artifactId}`. It also writes the receipt
+  to `upload_receipt.json`.
 - Limits: 16 MiB manifest JSON, 5,000 screenshots, 256 MiB of screenshots,
-  256 MiB compressed. The server also caps nodes at 20,000 per run and 5,000
-  per test.
-- No automatic HTTP retries. The default timeout is 120 s.
+  256 MiB compressed. The compressed limit is enforced while streaming. The
+  server also caps nodes at 20,000 per run and 5,000 per test.
+- No automatic HTTP retries. Preparing times out after 30 s; the upload after
+  `uploadTimeoutMs`, 120 s by default.
 
+`prepareArtifactUpload({ apiUrl, appId, uploadKey })`,
 `uploadRawGraph(manifest, screenshots, { apiUrl, appId, uploadKey, timeoutMs? })`
 and `createRawGraphBundle(manifest, screenshots)` are exported so a saved result
-can be uploaded again, e.g. from a later CI step. `screenshots` is one
-`{ nodeId, contentType, bytes }` per captured node, read from the files the
-manifest references. They are internal tooling and deliberately not documented
-in the README.
+can be uploaded again, e.g. from a later CI step: prepare, set the manifest's
+`artifactId`, then upload. `screenshots` is one `{ nodeId, contentType, bytes }`
+per captured node, read from the files the manifest references. They are
+internal tooling and deliberately not documented in the README.
 
 The server keeps its own versioned schemas and picks one by `formatVersion`.
 This package imports no server code.

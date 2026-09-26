@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -337,13 +338,33 @@ it('merges the final attempt of every recorded test into one raw graph', async (
   }
 });
 
-/** A stand-in Ralph server that checks each bundle and keeps its manifest. */
+/**
+ * A stand-in Ralph server that prepares artifacts, then checks each bundle
+ * names one it prepared and keeps its manifest.
+ */
 async function startUploadServer() {
   const received: RawGraphManifest[] = [];
+  const prepared: string[] = [];
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) {
       chunks.push(Buffer.from(chunk));
+    }
+    response.setHeader('content-type', 'application/json');
+    if (request.url === '/api/upload/artifact/prepare') {
+      expect(JSON.parse(Buffer.concat(chunks).toString())).toEqual({
+        externalAppId: 'app12345',
+      });
+      const artifactId = randomUUID();
+      prepared.push(artifactId);
+      response.end(
+        JSON.stringify({
+          result: 'ok',
+          artifactId,
+          resultUrl: `https://dash.example/uploads/${artifactId}`,
+        }),
+      );
+      return;
     }
     const files = await readBundle(Buffer.concat(chunks));
     const bundle = JSON.parse(
@@ -354,7 +375,11 @@ async function startUploadServer() {
         Buffer.from(files.get(screenshot.path)!).toString('ascii', 8, 12),
       ).toBe('WEBP');
     }
-    expect(request.url).toBe('/api/upload/playwright/apps/app12345/artifact');
+    const artifactId =
+      /^\/api\/upload\/web\/apps\/app12345\/artifact\/(.+)$/.exec(
+        request.url ?? '',
+      )?.[1];
+    expect(prepared).toContain(artifactId);
     expect(request.headers.authorization).toBe('Bearer test-secret');
     expect(request.headers['content-type']).toBe('application/gzip');
     expect(bundle.screenshots).toHaveLength(
@@ -362,15 +387,14 @@ async function startUploadServer() {
         .flatMap((graph) => graph.nodes)
         .filter((item) => item.status === 'recorded').length,
     );
+    expect(bundle.manifest.artifactId).toBe(artifactId);
     received.push(bundle.manifest);
-    response.setHeader('content-type', 'application/json');
     response.end(
       JSON.stringify({
         result: 'ok',
-        status: 'received',
-        artifactId: bundle.manifest.artifactId,
-        resultId: 'result-1',
-        resultUrl: 'https://dash.example/uploads/result-1',
+        status: 'queued',
+        artifactId,
+        resultUrl: `https://dash.example/uploads/${artifactId}`,
         replayed: false,
       }),
     );
@@ -427,7 +451,12 @@ it.each(['always', 'failures-only', 'never'])(
           graph.titlePath.includes('retry attempts'),
         ),
       ).toMatchObject({ retry: 1, status: 'passed' });
-      expect(stdout).toContain('https://dash.example/uploads/result-1');
+      const link = `https://dash.example/uploads/${run.artifactId}`;
+      // Printed once prepared, so the run can be followed while it uploads.
+      expect(
+        stdout.indexOf(`Follow the upload and processing at ${link}`),
+      ).toBeLessThan(stdout.indexOf(`Ralph is processing it at ${link}`));
+      expect(stdout).toContain(`Follow the upload and processing at ${link}`);
       if (preserveOutput === 'never') {
         expect(
           (await readdir(path.join(output, 'upload'))).filter(
@@ -442,7 +471,7 @@ it.each(['always', 'failures-only', 'never'])(
             'utf8',
           ),
         ),
-      ).toMatchObject({ resultId: 'result-1' });
+      ).toMatchObject({ status: 'queued', artifactId: run.artifactId });
     } finally {
       await server.close();
     }
@@ -508,7 +537,9 @@ it('merges a sharded run from its blob reports and uploads it once', async () =>
     expect(
       run.rawGraphs.find((graph) => graph.titlePath.includes('retry attempts')),
     ).toMatchObject({ retry: 1, status: 'passed' });
-    expect(stdout).toContain('https://dash.example/uploads/result-1');
+    expect(stdout).toContain(
+      `Ralph is processing it at https://dash.example/uploads/${run.artifactId}`,
+    );
   } finally {
     await server.close();
   }

@@ -32,7 +32,7 @@ describe('config snapshots', () => {
       screenSizes: [],
       simpleUrlCrawlRules: [{ scenario: { startUrl: 'https://a.co' } }],
     });
-    expect(snapshot.packageVersion).toBe('2.0.0');
+    expect(snapshot.packageVersion).toBe('2.1.0');
   });
 
   it('detaches an inline snapshot from subsequent mutations', async () => {

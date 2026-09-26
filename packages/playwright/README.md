@@ -50,14 +50,11 @@ export default defineConfig({
 });
 ```
 
-**4. Run:**
+**4. Run with your upload key** (see [Uploading to Ralph](#uploading-to-ralph)):
 
 ```sh
-RALPH_MODE=local pnpm exec playwright test
+RALPH_UPLOAD_KEY=… RALPH_APP_ID=… pnpm exec playwright test
 ```
-
-The merged graph for the run is written to `test-results/ralph/`. To send it to
-Ralph, see [Uploading to Ralph](#uploading-to-ralph).
 
 ## Tag your elements
 
@@ -161,27 +158,24 @@ await context.close();
 
 Set with `RALPH_MODE` or the `mode` option:
 
-| Mode     | What happens                                                                                        |
-| -------- | --------------------------------------------------------------------------------------------------- |
-| `off`    | Default. Nothing is recorded, and no config or credentials are needed.                              |
-| `local`  | `@ralph` tests are recorded, and the reporter writes the merged graph locally.                      |
-| `upload` | As `local`, and the reporter uploads the graph once the run ends. Default when `RALPH_UPLOAD_KEY` is set. |
+| Mode     | What happens                                                                                    |
+| -------- | ----------------------------------------------------------------------------------------------- |
+| `off`    | Default. Nothing is recorded, and no config or credentials are needed.                          |
+| `upload` | `@ralph` tests are recorded, and the reporter uploads the run. Default when `RALPH_UPLOAD_KEY` is set. |
 
-Untagged tests are never recorded. In `local` or `upload` mode, calling
+Untagged tests are never recorded. In `upload` mode, calling
 `ralph.recordNode` in an untagged test throws.
 
 ## Uploading to Ralph
 
-1. Create an upload key for your project with `/api/project/key/create`, and
-   keep it in your CI secrets.
-2. Set these as environment variables, or `apiUrl` and `appId` as
+1. Create an upload key for your project in the project dashboard.
+2. Set these as environment variables, or `appId` as
    [reporter options](#reporter-options):
 
-   | Variable           | Value                                           |
-   | ------------------ | ----------------------------------------------- |
-   | `RALPH_UPLOAD_KEY` | The upload key. Environment only.               |
-   | `RALPH_API_URL`    | Your Ralph server. HTTPS, or HTTP on localhost. |
-   | `RALPH_APP_ID`     | The app the recordings belong to.               |
+   | Variable           | Value                                              |
+   | ------------------ | -------------------------------------------------- |
+   | `RALPH_UPLOAD_KEY` | The upload key. Environment only.                  |
+   | `RALPH_APP_ID`     | The app the recordings belong to.                  |
 
 3. Run:
 
@@ -189,15 +183,14 @@ Untagged tests are never recorded. In `local` or `upload` mode, calling
    RALPH_MODE=upload pnpm exec playwright test
    ```
 
-The reporter uploads the whole run once and prints the link:
+The reporter uploads the whole run once. It prints the result link before the
+upload starts, so you can open it straight away and watch the run upload and
+then be processed:
 
 ```
-Ralph: uploaded the run's raw graph. https://dash.ralphralph.ai/uploads/0f6c6a2e-…
+Ralph: uploading the run. Follow the upload and processing at https://dash.ralphralph.ai/uploads/0f6c6a2e-…
+Ralph: uploaded the run. Ralph is processing it at https://dash.ralphralph.ai/uploads/0f6c6a2e-…
 ```
-
-- Retried tests contribute only their final attempt.
-- Every test in a run must use the same Ralph config, `runId`, and `buildId`.
-- If the upload fails, the run fails.
 
 ### Sharded runs
 
@@ -208,7 +201,7 @@ Use the `blob` reporter on each shard, then merge with the Ralph reporter:
 RALPH_MODE=upload pnpm exec playwright test --shard=1/4 --reporter blob
 
 # Once, after collecting every shard's blob-report/ into all-blob-reports/:
-RALPH_MODE=upload RALPH_UPLOAD_KEY=… RALPH_API_URL=… RALPH_APP_ID=… \
+RALPH_MODE=upload RALPH_UPLOAD_KEY=… RALPH_APP_ID=… \
   pnpm exec playwright merge-reports --reporter @ralphralphai/playwright/reporter ./all-blob-reports
 ```
 
@@ -260,14 +253,14 @@ Set `ralphOptions` in `playwright.config.ts`, or per file with `test.use`:
 ```ts
 export default defineConfig<RalphFixtures>({
   use: {
-    ralphOptions: { mode: 'local', buildId: process.env.GIT_SHA, settleMs: 300 },
+    ralphOptions: { buildId: process.env.GIT_SHA, settleMs: 300 },
   },
 });
 ```
 
 | Option            | Default                  | What it does                                                                                    |
 | ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `mode`            | `RALPH_MODE`, else `off` | `off`, `local`, or `upload`. See [Modes](#modes).                                               |
+| `mode`            | `RALPH_MODE`, else `off` | `off` or `upload`. See [Modes](#modes).                                                         |
 | `configPath`      | `ralph.jsonc`            | Path to the config, relative to the Playwright config.                                          |
 | `config`          |                          | An inline config instead of a file (type: `WebRalphConfig`).                                    |
 | `buildId`         | `RALPH_BUILD_ID`         | Your app's build, to line up recordings with its analytics.                                     |
@@ -286,7 +279,6 @@ reporter: [['list'], ['@ralphralphai/playwright/reporter', { appId: 'my-app' }]]
 | Option            | Default                                           | What it does                                    |
 | ----------------- | ------------------------------------------------- | ----------------------------------------------- |
 | `mode`            | `RALPH_MODE`, else `upload` if `RALPH_UPLOAD_KEY` | `upload` uploads the run.                       |
-| `apiUrl`          | `RALPH_API_URL`                                   | Your Ralph server.                              |
 | `appId`           | `RALPH_APP_ID`                                    | The app the recordings belong to.               |
 | `uploadTimeoutMs` | 120000                                            | Upload timeout.                                 |
 | `outputDir`       | `ralph/` in the first project's output directory  | Where the merged graph is written.              |

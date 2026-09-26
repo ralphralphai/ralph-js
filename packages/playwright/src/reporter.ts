@@ -17,9 +17,12 @@ import { MANIFEST_ATTACHMENT, REPORTER_ENV } from './recorder';
 import type { RawGraphManifest, RawGraph, RawGraphFile } from './types';
 import {
   RAW_GRAPH_BUNDLE_INDEX,
+  prepareArtifactUpload,
   resolveUploadOptions,
+  resultLink,
   bundleImagePath,
   uploadRawGraph,
+  type PreparedUpload,
   type RawGraphBundleIndex,
   type RawGraphScreenshot,
 } from './upload';
@@ -31,7 +34,7 @@ export type RalphReporterOptions = {
    * test ran in `upload` mode.
    */
   mode?: 'off' | 'local' | 'upload';
-  /** Your Ralph server. Defaults to `RALPH_API_URL`. */
+  /** Your Ralph server. Defaults to `RALPH_API_URL`, else `https://api.ralphralph.ai`. */
   apiUrl?: string;
   /** The app the recordings belong to. Defaults to `RALPH_APP_ID`. */
   appId?: string;
@@ -61,7 +64,6 @@ type Collected = {
  * the shards' blob reports.
  */
 export default class RalphReporter implements Reporter {
-  private readonly artifactId = randomUUID();
   private readonly startedAt = new Date().toISOString();
   private config?: FullConfig;
 
@@ -101,15 +103,42 @@ export default class RalphReporter implements Reporter {
         return undefined;
       }
 
-      const { manifest, images } = this.merge(collected);
+      const merged = this.merge(collected);
       const screenshots = await Promise.all(
-        images.map(
+        merged.images.map(
           async ({ source, ...image }): Promise<RawGraphScreenshot> => ({
             ...image,
             bytes: typeof source === 'string' ? await readFile(source) : source,
           }),
         ),
       );
+      const uploading =
+        resolveMode(this.options) === 'upload' ||
+        collected.some(({ file }) => file.mode === 'upload');
+
+      // Before the local copy is written, so it names the same artifact as the
+      // upload, and the link is printed as soon as it works.
+      let prepared: PreparedUpload | undefined;
+      if (uploading) {
+        try {
+          prepared = await prepareArtifactUpload(
+            resolveUploadOptions(this.options),
+          );
+        } catch (error) {
+          const outputDir = await this.write(merged.manifest, screenshots);
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)} The recording was saved to ${outputDir}.`,
+            { cause: error },
+          );
+        }
+        log(
+          `Ralph: uploading the run. Follow the upload and processing at ${resultLink(prepared)}`,
+        );
+      }
+      const manifest =
+        prepared === undefined
+          ? merged.manifest
+          : { ...merged.manifest, artifactId: prepared.artifactId };
       const nodeCount = manifest.rawGraphs.reduce(
         (total, graph) => total + graph.nodes.length,
         0,
@@ -119,21 +148,23 @@ export default class RalphReporter implements Reporter {
         `Ralph: merged ${manifest.rawGraphs.length} test(s), ${nodeCount} node(s) into ${outputDir}`,
       );
 
-      if (
-        resolveMode(this.options) === 'upload' ||
-        collected.some(({ file }) => file.mode === 'upload')
-      ) {
+      if (prepared !== undefined) {
         const receipt = await uploadRawGraph(
           manifest,
           screenshots,
           resolveUploadOptions(this.options),
-        );
+        ).catch((error: unknown) => {
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)} The recording was saved to ${outputDir}.`,
+            { cause: error },
+          );
+        });
         await writeFile(
           path.join(outputDir, 'upload_receipt.json'),
           JSON.stringify(receipt, null, 2) + '\n',
         );
         log(
-          `Ralph: uploaded the run's raw graph. ${receipt.resultUrl ?? 'Result id: ' + receipt.resultId}`,
+          `Ralph: uploaded the run. Ralph is processing it at ${resultLink(receipt)}`,
         );
       }
       return undefined;
@@ -221,7 +252,8 @@ export default class RalphReporter implements Reporter {
       },
       runId: first!.file.runId,
       buildId: first!.file.buildId,
-      artifactId: this.artifactId,
+      // Replaced by the prepared artifact's id when the run is uploaded.
+      artifactId: randomUUID(),
       shard: this.config?.shard ?? null,
       startedAt: this.startedAt,
       finishedAt: new Date().toISOString(),

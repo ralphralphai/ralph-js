@@ -16,8 +16,13 @@ import type { ConfigSnapshot, Ralph, RalphOptions } from './types';
 
 export { expect, mergeTests } from '@playwright/test';
 export type { WebRalphConfig } from '@ralphralphai/config';
-export { createRawGraphBundle, uploadRawGraph } from './upload';
+export {
+  createRawGraphBundle,
+  prepareArtifactUpload,
+  uploadRawGraph,
+} from './upload';
 export type {
+  PreparedUpload,
   UploadOptions,
   UploadReceipt,
   RawGraphScreenshot,
