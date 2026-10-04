@@ -109,6 +109,28 @@ test('shipping options', { tag: '@ralph' }, async ({ page, ralph }) => {
 
 `url` only changes what is recorded; the browser doesn't navigate.
 
+### Node conditions, for pages that render differently at one URL
+
+When one URL renders differently by visitor (a plan, an experiment group) or by
+page state (an open dialog), declare what each screenshot stands for. The test is
+the only source of a node's conditions, including sets of values:
+
+```ts
+await page.goto('https://example.com/checkout');
+const undo = await ralph.setNodeConditions(page, {
+  visitorTags: { plan: ['pro', 'enterprise'] },
+  pageTags: { dialog: [undefined, 'shipping'] }, // absent, or shipping
+});
+await undo();
+```
+
+It changes no app state. A declaration that moves the page to a different node
+records it again; declarations merge until the URL changes. If your app tags
+visitors and pages with `@ralphralphai/tracker`, each recording also checks the
+declaration against those tags: where the app reports a value outside it, the node
+lists it in `tagMismatches` and the upload page shows it, because those nodes would
+match no production traffic. `strictNodeTags` fails the test instead.
+
 ### Waiting for capture
 
 Recordings run in the background. If the test leaves a page before its
@@ -269,6 +291,7 @@ export default defineConfig<RalphFixtures>({
 | `recordTimeoutMs` | 5000                     | Budget for one recording, including `settleMs` and `ready`. Must exceed `settleMs`.             |
 | `ready`           |                          | `(page, signal) => Promise<void>`. Waits for your app before an automatic recording. Honor `signal`. |
 | `reduceMotion`    | `false`                  | Emulates `prefers-reduced-motion: reduce` and waits for finite animations before recording.     |
+| `strictNodeTags`  | `false`                  | Fails the test when the app reports a tag outside what `ralph.setNodeConditions` declared.      |
 
 ## Reporter options
 

@@ -10,13 +10,20 @@
 //      its own shape *is* the applicability table and there is nothing to
 //      restate.
 
-import { StringLookupTable, ViewportSizeLookupTable } from './lookup_table';
-import type { Columns, EventBatch, RalphEvent } from '@/events';
-import { MOUSE_GRID_PX, NO_TRACK_INDEX } from '@/events';
+import {
+  StringLookupTable,
+  TagsLookupTable,
+  ViewportSizeLookupTable,
+} from './lookup_table';
+import type { Columns, EventBatch, RalphEvent, Tags } from '@/events';
+import { MOUSE_GRID_PX, NO_TRACK_INDEX, UNTAGGED_INDEX } from '@/events';
 
 type NavSource =
   | { url: string; navParam?: never }
   | { navParam: string; url?: never };
+
+/** The tags in effect when the event was recorded. Absent or empty is none. */
+type Tagged = { visitorTags?: Tags; pageTags?: Tags };
 
 /** A sample as the tracker observes it: full urls and sizes, not yet indices. */
 export type RawEvent =
@@ -30,7 +37,8 @@ export type RawEvent =
       trackId?: string;
       rx?: number;
       ry?: number;
-    } & NavSource)
+    } & NavSource &
+      Tagged)
   | ({
       ty: 5;
       at: number;
@@ -38,7 +46,8 @@ export type RawEvent =
       sx: number;
       sy: number;
       count?: number;
-    } & NavSource)
+    } & NavSource &
+      Tagged)
   | { ty: 6; at: number }
   | { ty: 7; at: number }
   | ({
@@ -48,7 +57,8 @@ export type RawEvent =
       px: number;
       py: number;
       count?: number;
-    } & NavSource);
+    } & NavSource &
+      Tagged);
 
 export type ViewportSize = [width: number, height: number];
 
@@ -65,6 +75,8 @@ const SPARSE_COLUMNS = [
   'rx',
   'ry',
   'c',
+  'vt',
+  'pt',
 ] as const;
 
 type RequiredKeys<T> = {
@@ -93,6 +105,8 @@ export type LookupTables = {
   appNavParams: string[];
   tracks: string[];
   sizes: ViewportSize[];
+  visitorTagSets: Tags[];
+  pageTagSets: Tags[];
 };
 
 type AggregateRawEvents = {
@@ -109,6 +123,19 @@ export function aggregateRawEvents(
   const urls = new StringLookupTable();
   const appNavParams = new StringLookupTable();
   const sizes = new ViewportSizeLookupTable();
+  // `[0]` of each tag table is reserved as the empty set, so an index of `0`
+  // means none, the way `tr` of `0` means "no tracked element".
+  const visitorTagSets = new TagsLookupTable();
+  const pageTagSets = new TagsLookupTable();
+
+  const tagged = (sample: Tagged): { vt?: number; pt?: number } => {
+    const vt = visitorTagSets.indexFor(sample.visitorTags ?? {});
+    const pt = pageTagSets.indexFor(sample.pageTags ?? {});
+    return {
+      ...(vt === UNTAGGED_INDEX ? {} : { vt }),
+      ...(pt === UNTAGGED_INDEX ? {} : { pt }),
+    };
+  };
 
   const navIndexFor = (sample: NavSource): { u: number } | { a: number } =>
     sample.url === undefined
@@ -146,6 +173,7 @@ export function aggregateRawEvents(
           ...(tr === NO_TRACK_INDEX
             ? {}
             : { tr, rx: sample.rx ?? 0, ry: sample.ry ?? 0 }),
+          ...tagged(sample),
         };
       }
 
@@ -158,6 +186,7 @@ export function aggregateRawEvents(
           sx: sample.sx,
           sy: sample.sy,
           ...runLength(sample.count),
+          ...tagged(sample),
         };
 
       case 6:
@@ -175,6 +204,7 @@ export function aggregateRawEvents(
           px: sample.px,
           py: sample.py,
           ...runLength(sample.count),
+          ...tagged(sample),
         };
     }
   });
@@ -187,6 +217,8 @@ export function aggregateRawEvents(
       appNavParams: appNavParams.values,
       tracks: tracks.values,
       sizes: sizes.values,
+      visitorTagSets: visitorTagSets.values,
+      pageTagSets: pageTagSets.values,
     },
   };
 }
@@ -286,6 +318,14 @@ export function encodeBatch(
     ...nav,
     tracks: tables.tracks,
     sizes: tables.sizes,
+    // Only a batch that tagged something carries the table, so an app that
+    // never tags sends the bytes it sent before tags existed.
+    ...(tables.visitorTagSets.length > 1
+      ? { visitorTagSets: tables.visitorTagSets }
+      : {}),
+    ...(tables.pageTagSets.length > 1
+      ? { pageTagSets: tables.pageTagSets }
+      : {}),
     // Explicit rather than inferred from `dt.length`, so a truncated or
     // mismatched body fails validation server-side instead of decoding short.
     n: events.length,

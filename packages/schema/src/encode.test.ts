@@ -350,3 +350,79 @@ describe('encodeBatch', () => {
     expect(batch).not.toHaveProperty('appNavParams');
   });
 });
+
+describe('tags', () => {
+  const url = 'https://example.com/checkout';
+
+  it('interns each kind separately, one set once whatever its key order', () => {
+    const { events, tables } = aggregateRawEvents([
+      {
+        ty: 5,
+        at: 0,
+        url,
+        size: SIZE,
+        sx: 0,
+        sy: 0,
+        visitorTags: { a: 1, b: 'x' },
+        pageTags: { dialog: 'shipping' },
+      },
+      {
+        ty: 8,
+        at: 10,
+        url,
+        size: SIZE,
+        px: 5,
+        py: 5,
+        visitorTags: { b: 'x', a: 1 },
+      },
+      { ty: 4, at: 20, url, size: SIZE, px: 5, py: 5, pageTags: { tab: 2 } },
+    ]);
+
+    expect(tables.visitorTagSets).toEqual([{}, { a: 1, b: 'x' }]);
+    expect(tables.pageTagSets).toEqual([
+      {},
+      { dialog: 'shipping' },
+      { tab: 2 },
+    ]);
+    expect(events.map((e) => ['vt' in e && e.vt, 'pt' in e && e.pt])).toEqual([
+      [1, 1],
+      [1, false],
+      [false, 2],
+    ]);
+  });
+
+  it('leaves an untagged event without vt or pt, empty tags included', () => {
+    const { events } = aggregateRawEvents([
+      { ty: 5, at: 0, url, size: SIZE, sx: 0, sy: 0 },
+      { ty: 5, at: 250, url, size: SIZE, sx: 0, sy: 10, pageTags: {} },
+    ]);
+
+    expect(events.every((e) => !('vt' in e) && !('pt' in e))).toBe(true);
+  });
+
+  it('sends a table and its column only when that kind was used', () => {
+    const untagged = encodeBatch(identity, [
+      { ty: 5, at: 0, url, size: SIZE, sx: 0, sy: 0 },
+    ]);
+    for (const absent of ['visitorTagSets', 'pageTagSets']) {
+      expect(untagged).not.toHaveProperty(absent);
+    }
+
+    const tagged = encodeBatch(identity, [
+      { ty: 5, at: 0, url, size: SIZE, sx: 0, sy: 0 },
+      {
+        ty: 5,
+        at: 250,
+        url,
+        size: SIZE,
+        sx: 0,
+        sy: 0,
+        visitorTags: { beta: true },
+      },
+    ]);
+    expect(tagged.visitorTagSets).toEqual([{}, { beta: true }]);
+    expect(tagged.cols.vt).toEqual([0, 1]);
+    expect(tagged).not.toHaveProperty('pageTagSets');
+    expect(tagged.cols).not.toHaveProperty('pt');
+  });
+});

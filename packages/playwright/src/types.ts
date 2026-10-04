@@ -11,12 +11,54 @@ export type RalphOptions = {
   reduceMotion?: boolean;
   recordTimeoutMs?: number;
   ready?: (page: Page, signal: AbortSignal) => Promise<void>;
+  /**
+   * Fail the test when the app reports a tag outside the set the test
+   * declared for it. Otherwise the mismatch is only listed on the node.
+   */
+  strictNodeTags?: boolean;
 };
 
 export type RecordNodeOptions = { state?: string; url?: string };
 
+export type TagValue = boolean | number | string;
+
+/** One value, or the set of values the node stands for. `null` and `undefined` in a set mean the key is absent. */
+export type TagDeclaration = Record<
+  string,
+  TagValue | (TagValue | null | undefined)[] | undefined
+>;
+
+export type ConditionsDeclaration = {
+  visitorTags?: TagDeclaration;
+  pageTags?: TagDeclaration;
+};
+
+/** Each key's accepted values, `null` accepting the key's absence. */
+export type TagConditions = Record<string, (TagValue | null)[]>;
+
+export type NodeConditions = {
+  visitorTags?: TagConditions;
+  pageTags?: TagConditions;
+};
+
+/** The tags the app's tracker had in effect. */
+export type RecordedTags = {
+  visitorTags: Record<string, TagValue>;
+  pageTags: Record<string, TagValue>;
+};
+
 export type Ralph = {
   recordNode(page: Page, options?: RecordNodeOptions): Promise<void>;
+  /**
+   * Declares which visitor and page tags the node on screen stands for,
+   * merged over earlier declarations until the URL changes, and records the
+   * node. It changes no app state. The returned function removes this call's
+   * declaration and records again.
+   */
+  setNodeConditions(
+    page: Page,
+    conditions: ConditionsDeclaration,
+  ): Promise<() => Promise<void>>;
   waitForCapture(): Promise<void>;
   pause(): void;
   resume(): void;
@@ -46,8 +88,14 @@ export type RawNode = {
   requestedAt: string;
   actualUrl: string;
   url: string;
-  trigger: 'url-change' | 'explicit';
+  trigger: 'url-change' | 'condition-change' | 'explicit';
   state?: string;
+  /** What the node stands for, as the test declared it. */
+  conditions?: NodeConditions;
+  /** What the app's tracker had in effect, absent when the page runs none. */
+  reportedTags?: RecordedTags;
+  /** Declared keys the reported value falls outside, as `visitorTags.plan`. */
+  tagMismatches?: string[];
   /**
    * The node this page state was reached from: the previous one on the same
    * page, or for a popup's first node, its opener's latest. Superseded and

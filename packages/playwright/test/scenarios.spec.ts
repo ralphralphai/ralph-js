@@ -122,6 +122,59 @@ test('explicit URL overrides', { tag: '@ralph' }, async ({ page, ralph }) => {
   ).rejects.toThrow('HTTP');
 });
 
+// A stand-in for the tracker: the global the fixture reads its tags from.
+const taggedHtml =
+  '<!doctype html><html><body style="margin: 0"><script>' +
+  "let tags = { visitorTags: { experiment: 'control', account: 'a1' }, pageTags: {} };" +
+  'window.__ralphTags = () => tags;' +
+  'window.setTags = (next) => { tags = next; };' +
+  '</script></body></html>';
+
+test('node conditions', { tag: '@ralph' }, async ({ context, page, ralph }) => {
+  await context.route('https://tags.test/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: taggedHtml }),
+  );
+  const setTags = (tags: object) =>
+    page.evaluate(
+      (next) =>
+        (window as unknown as { setTags: (tags: object) => void }).setTags(
+          next,
+        ),
+      tags,
+    );
+
+  await page.goto('https://tags.test/checkout');
+  await ralph.waitForCapture();
+
+  const undo = await ralph.setNodeConditions(page, {
+    visitorTags: { experiment: ['control', 'holdout'] },
+  });
+  // The same declaration again changes nothing, so records nothing, and so
+  // does undoing it while the first still stands.
+  const again = await ralph.setNodeConditions(page, {
+    visitorTags: { experiment: ['holdout', 'control'] },
+  });
+
+  // The app tagging its page is not a declaration, so it records nothing.
+  await setTags({
+    visitorTags: { experiment: 'control', account: 'a1' },
+    pageTags: { dialog: 'shipping' },
+  });
+  await ralph.waitForCapture();
+
+  await again();
+  await undo();
+  await ralph.setNodeConditions(page, {
+    visitorTags: { experiment: 'treatment' },
+  });
+  await ralph.setNodeConditions(page, {
+    pageTags: { dialog: [undefined, 'shipping'] },
+  });
+
+  await page.goto('https://tags.test/other');
+  await ralph.waitForCapture();
+});
+
 test(
   'teardown drains automatic recording',
   { tag: '@ralph' },

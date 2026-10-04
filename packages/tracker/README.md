@@ -56,6 +56,37 @@ import { TrackedButton } from '@ralphralphai/tracker';
 and explore what lies beyond it. A `data-track-id` on its own is measured but never
 crawled.
 
+## Tag what changes the page
+
+The same URL can render different pages. Ralph tells them apart by two kinds of
+tags, recorded with every event.
+
+**Visitor tags** describe the visitor: a plan, an experiment group, a feature flag.
+They hold across pages until changed or cleared. They are not kept across a reload,
+so set them on every page load.
+
+```ts
+import { clearVisitorTags, setVisitorTags } from '@ralphralphai/tracker';
+
+setVisitorTags({ checkoutExperiment: posthog.getFeatureFlag('new-checkout') });
+clearVisitorTags(['checkoutExperiment']);
+```
+
+**Page tags** describe the page on screen: an open dialog, a wizard step. Every URL
+change clears them, so each page tags itself.
+
+```tsx
+import { useRalphPage } from '@ralphralphai/tracker/client';
+
+useRalphPage({ dialog: 'shipping' }); // untags on unmount
+```
+
+Or, outside React, `const untag = tagPage({ dialog: 'shipping' })`.
+
+Values are `boolean | number | string`; an `undefined` value is skipped. A change
+applies to the events recorded after it. Tags are sent as given, so keep emails and
+account ids out of them.
+
 ## The transport is injected
 
 `sendBatch` is a plain function, so an app that already has an authenticated client, a
