@@ -5,10 +5,12 @@ import {
   MOUSE_GRID_PX,
   quantizeMouse,
   type RawEvent,
+  type TagValue,
   type ViewportSize,
 } from '@ralphralphai/schema';
 
 import { BUTTON_TRACK_ID } from '@/ButtonWrapper';
+import { sameTags, type TagStore, tagStore } from '@/tags';
 
 /** Flush once this many events are buffered. */
 const FLUSH_AT_EVENTS = 100;
@@ -96,6 +98,7 @@ export class Tracker {
     private readonly config: TrackerConfig,
     /** The pending buffer. Injectable so tests can observe what was recorded. */
     private buffer: RawEvent[] = [],
+    private readonly tags: TagStore = tagStore,
   ) {
     // `GlobalTracker` is a client component, but Next.js still server-renders it
     // on first load, where neither storage exists. Tracking is client-only, so
@@ -128,6 +131,8 @@ export class Tracker {
     if (!existingSession) {
       this.buffer.push({ ty: 6, at: Date.now() });
     }
+
+    window.__ralphTags = () => this.tags.at(window.location.href);
   }
 
   /** Whether the tracker found the storage it needs to identify a session. */
@@ -168,8 +173,9 @@ export class Tracker {
     );
     const trackId = actionable?.getAttribute(BUTTON_TRACK_ID) ?? undefined;
 
-    const at = Date.now();
     const url = window.location.href;
+    const tags = this.tagsAt(url);
+    const at = Date.now();
 
     // Emitted back to back with the PageClick below, at the same millisecond and
     // for the same url, which is why `Pressable` carries no url of its own.
@@ -193,6 +199,7 @@ export class Tracker {
       ...(actionable && trackId
         ? { trackId, ...relativeTo(actionable, event) }
         : {}),
+      ...tags,
     });
   };
 
@@ -204,13 +211,16 @@ export class Tracker {
     // Raw scroll offsets rather than the derived page centre: identical
     // information given the size is recorded, but `0` when unscrolled, so it
     // compresses and run-length-encodes far better.
+    const url = window.location.href;
+    const tags = this.tagsAt(url);
     const sample = {
       ty: 5,
       at: Date.now(),
-      url: window.location.href,
+      url,
       size: currentScreenSize(),
       sx: Math.round(window.scrollX),
       sy: Math.round(window.scrollY),
+      ...tags,
     } as const satisfies RawEvent;
 
     this.pushSample(
@@ -247,13 +257,16 @@ export class Tracker {
     // the equality test below. Runs are compared exactly, so 1 px of jitter would
     // otherwise defeat them. That costs more than bytes: it multiplies the event
     // count by up to 30x, and with it the request and batch-row counts.
+    const url = window.location.href;
+    const tags = this.tagsAt(url);
     const sample = {
       ty: 8,
       at: Date.now(),
-      url: window.location.href,
+      url,
       size: currentScreenSize(),
       px: quantizeMouse(position.clientX + window.scrollX),
       py: quantizeMouse(position.clientY + window.scrollY),
+      ...tags,
     } as const satisfies RawEvent;
 
     this.pushSample(
@@ -295,6 +308,8 @@ export class Tracker {
       last.url === sample.url &&
       last.size[0] === sample.size[0] &&
       last.size[1] === sample.size[1] &&
+      sameTags(last.visitorTags, sample.visitorTags) &&
+      sameTags(last.pageTags, sample.pageTags) &&
       matches(last as T)
     ) {
       last.count = (last.count ?? 1) + 1;
@@ -302,6 +317,17 @@ export class Tracker {
     }
 
     this.buffer.push(sample);
+  }
+
+  private tagsAt(url: string): {
+    visitorTags?: Record<string, TagValue>;
+    pageTags?: Record<string, TagValue>;
+  } {
+    const { visitorTags, pageTags } = this.tags.at(url);
+    return {
+      ...(Object.keys(visitorTags).length === 0 ? {} : { visitorTags }),
+      ...(Object.keys(pageTags).length === 0 ? {} : { pageTags }),
+    };
   }
 
   private lastSampleOfType(

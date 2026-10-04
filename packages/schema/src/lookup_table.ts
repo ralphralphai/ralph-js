@@ -1,4 +1,5 @@
 import { ViewportSize } from './encode';
+import type { Tags } from '@/events';
 
 /** A list of distinct strings, addressed by position. */
 export class StringLookupTable {
@@ -40,6 +41,27 @@ export class ViewportSizeLookupTable {
     }
 
     const next = this.values.push(size) - 1;
+    this.positions.set(key, next);
+    return next;
+  }
+}
+
+// Keyed by the entries sorted, so one set spelled in two key orders interns
+// once. `[0]` is reserved as the empty set.
+export class TagsLookupTable {
+  readonly values: Tags[] = [{}];
+  private readonly positions = new Map<string, number>([['[]', 0]]);
+
+  indexFor(tags: Tags): number {
+    const key = JSON.stringify(
+      Object.entries(tags).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    );
+    const existing = this.positions.get(key);
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const next = this.values.push(tags) - 1;
     this.positions.set(key, next);
     return next;
   }

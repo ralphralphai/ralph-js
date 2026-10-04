@@ -107,3 +107,10 @@ export const MOUSE_GRID_PX = 5;
 
 /** `tracks[0]` is reserved, so `tr === 0` means "no tracked element". */
 export const NO_TRACK_INDEX = 0;
+
+export type TagValue = boolean | number | string;
+
+export type Tags = Record<string, TagValue>;
+
+/** `[0]` of each tag table is reserved as `{}`, so an index of `0` means none. */
+export const UNTAGGED_INDEX = 0;

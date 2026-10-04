@@ -1,6 +1,7 @@
 import type { EventBatch, RawEvent } from '@ralphralphai/schema';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { TagStore } from '@/tags';
 import { Tracker } from '@/tracker';
 
 const URL = 'https://example.com/pricing';
@@ -346,5 +347,116 @@ describe('flushing', () => {
     for (const column of Object.values(batch.cols)) {
       expect(column).toHaveLength(batch.n);
     }
+  });
+});
+
+describe('tags', () => {
+  /** A tracker over its own store, so no test sees another's tags. */
+  const tracked = () => {
+    const store = new TagStore();
+    const buffer: RawEvent[] = [];
+    const tracker = new Tracker({ sendBatch: vi.fn() }, buffer, store);
+    buffer.length = 0;
+    const tagPage = (tags: Record<string, string | undefined>) =>
+      store.tagPage(tags, window.location.href);
+    const navigate = (href: string) => {
+      window.location.href = href;
+    };
+    return { tracker, buffer, store, tagPage, navigate };
+  };
+
+  const tagsOf = (event: RawEvent | undefined) => [
+    event !== undefined && 'visitorTags' in event
+      ? event.visitorTags
+      : undefined,
+    event !== undefined && 'pageTags' in event ? event.pageTags : undefined,
+  ];
+
+  it('records both kinds on every sample', () => {
+    const { tracker, buffer, store, tagPage } = tracked();
+
+    store.setVisitorTags({ plan: 'pro', flag: undefined });
+    tagPage({ dialog: 'shipping' });
+    tracker.trackPageView();
+
+    expect(tagsOf(buffer[0])).toEqual([
+      { plan: 'pro' },
+      { dialog: 'shipping' },
+    ]);
+  });
+
+  it('keeps visitor tags across a URL change and clears page tags', () => {
+    const { tracker, buffer, store, tagPage, navigate } = tracked();
+
+    store.setVisitorTags({ plan: 'pro' });
+    tagPage({ dialog: 'shipping' });
+    navigate('https://example.com/other');
+    tracker.trackPageView();
+
+    expect(tagsOf(buffer[0])).toEqual([{ plan: 'pro' }, undefined]);
+  });
+
+  it('applies a change to later events only', () => {
+    const { tracker, buffer, store } = tracked();
+
+    tracker.trackPageView();
+    store.setVisitorTags({ plan: 'pro' });
+    tracker.trackPageView();
+    store.clearVisitorTags(['plan']);
+    tracker.trackPageView();
+
+    expect(buffer.map((event) => tagsOf(event)[0])).toEqual([
+      undefined,
+      { plan: 'pro' },
+      undefined,
+    ]);
+  });
+
+  it('starts a new run when either kind changes on one URL', () => {
+    const { tracker, buffer, tagPage } = tracked();
+
+    tracker.trackPageView();
+    const untag = tagPage({ dialog: 'shipping' });
+    tracker.trackPageView();
+    untag();
+    tracker.trackPageView();
+
+    expect(buffer.map((event) => tagsOf(event)[1])).toEqual([
+      undefined,
+      { dialog: 'shipping' },
+      undefined,
+    ]);
+  });
+
+  it('interns each kind into the batch it flushes', () => {
+    const sent: EventBatch[] = [];
+    const store = new TagStore();
+    const tracker = new Tracker(
+      { sendBatch: (batch) => void sent.push(batch) },
+      [],
+      store,
+    );
+
+    store.setVisitorTags({ beta: 'on' });
+    store.tagPage({ dialog: 'shipping' }, window.location.href);
+    tracker.trackPageView();
+    tracker.onPageLeave();
+
+    expect(sent[0]!.visitorTagSets).toEqual([{}, { beta: 'on' }]);
+    expect(sent[0]!.pageTagSets).toEqual([{}, { dialog: 'shipping' }]);
+    expect(sent[0]!.cols.vt).toEqual([0, 1, 0]);
+    expect(sent[0]!.cols.pt).toEqual([0, 1, 0]);
+  });
+
+  it('exposes the tags in effect to the page, for the Playwright fixture', () => {
+    const { store, tagPage } = tracked();
+
+    store.setVisitorTags({ plan: 'pro' });
+    tagPage({ dialog: 'shipping' });
+
+    expect(window.__ralphTags?.()).toEqual({
+      visitorTags: { plan: 'pro' },
+      pageTags: { dialog: 'shipping' },
+    });
   });
 });

@@ -7,6 +7,13 @@ import playwrightPackage from '@playwright/test/package.json' with { type: 'json
 
 import packageInfo from '../package.json';
 import { waitForAnimations } from './animations';
+import {
+  compactConditions,
+  declaredConditions,
+  mergeConditions,
+  mismatchesOf,
+  nodeKey,
+} from './conditions';
 import { imageExtension, takeScreenshot, type Screenshot } from './image';
 import { readLayout } from './layout';
 import type {
@@ -15,6 +22,9 @@ import type {
   RawGraphFile,
   RecordNodeOptions,
   ConfigSnapshot,
+  ConditionsDeclaration,
+  NodeConditions,
+  RecordedTags,
   Ralph,
   RalphOptions,
 } from './types';
@@ -30,6 +40,9 @@ export const REPORTER_ENV = 'RALPH_PLAYWRIGHT_REPORTER';
 
 /** Prefix of the attachment holding each recorded node's screenshot; the node id follows. */
 export const SCREENSHOT_ATTACHMENT_PREFIX = 'ralph-screenshot-';
+
+/** Once per worker: a run without the tracker says so once, not per node. */
+let warnedNoTracker = false;
 
 const DEFAULT_SETTLE_MS = 150;
 const DEFAULT_RECORD_TIMEOUT_MS = 5_000;
@@ -59,6 +72,15 @@ type PageState = {
 
   /** The next node's position within this tab. */
   sequence: number;
+
+  /**
+   * The test's `setNodeConditions` declarations for the current URL, one layer per call
+   * so each `untag` removes its own. Cleared when the URL changes.
+   */
+  declared: Map<symbol, NodeConditions>;
+
+  /** The last node recorded here, so a declaration that leaves the page on it records nothing. */
+  lastRecorded?: { url: string; node: string };
 
   /** The last queued recording. Recordings in a tab run one at a time. */
   tail: Promise<void>;
@@ -180,6 +202,27 @@ export class Recorder implements Ralph {
     await this.enqueueCreateNodeRequest(state, 'explicit', options);
   }
 
+  async setNodeConditions(
+    page: Page,
+    declaration: ConditionsDeclaration,
+  ): Promise<() => Promise<void>> {
+    this.observe(page.context());
+    const state = this.pages.get(page);
+    if (!state) {
+      throw new Error('Cannot tag a closed browser page.');
+    }
+
+    const key = Symbol();
+    state.declared.set(key, declaredConditions(declaration));
+    await this.recordConditionChange(state);
+
+    return async () => {
+      if (state.declared.delete(key)) {
+        await this.recordConditionChange(state);
+      }
+    };
+  }
+
   /**
    * Stops requesting nodes, automatic or explicit, until `resume`. Recordings
    * already requested still complete. The next node after `resume` links to
@@ -241,6 +284,23 @@ export class Recorder implements Ralph {
     );
     await this.writeRawGraph(this.buildRawGraph(nodes, failures.length));
 
+    const mismatched = nodes.filter((item) => item.tagMismatches?.length);
+    if (
+      this.options.strictNodeTags &&
+      mismatched.length &&
+      this.testInfo.status === 'passed'
+    ) {
+      throw new Error(
+        'Ralph: the app reported tags outside what the test declared, on ' +
+          mismatched
+            .map(
+              (item) => item.url + ' (' + item.tagMismatches!.join(', ') + ')',
+            )
+            .join('; ') +
+          '.',
+      );
+    }
+
     if (failures.length && this.testInfo.status === 'passed') {
       throw new Error(
         'Ralph could not record ' +
@@ -268,6 +328,7 @@ export class Recorder implements Ralph {
       lastUrl: '',
       generation: 0,
       sequence: 0,
+      declared: new Map(),
       tail: Promise.resolve(),
       opener: Promise.resolve(),
       onNavigation: (frame) => {
@@ -306,6 +367,7 @@ export class Recorder implements Ralph {
 
     state.generation++;
     state.lastUrl = url;
+    state.declared.clear();
 
     if (!this.paused && isHttpUrl(url)) {
       // Automatic recordings never fail the test; failures land in the manifest.
@@ -313,6 +375,24 @@ export class Recorder implements Ralph {
         () => undefined,
       );
     }
+  }
+
+  private async recordConditionChange(state: PageState): Promise<void> {
+    if (!this.paused && isHttpUrl(state.page.url())) {
+      await this.enqueueCreateNodeRequest(state, 'condition-change', {});
+    }
+  }
+
+  private declaredConditions(state: PageState): NodeConditions {
+    return mergeConditions([...state.declared.values()]);
+  }
+
+  private async reportedTags(page: Page): Promise<RecordedTags | undefined> {
+    return page
+      .evaluate(() =>
+        (window as { __ralphTags?: () => RecordedTags }).__ralphTags?.(),
+      )
+      .catch(() => undefined);
   }
 
   // ---------------------------------------------------------------------------
@@ -388,8 +468,33 @@ export class Recorder implements Ralph {
 
     try {
       check();
-      if (request.trigger === 'url-change') {
+      if (request.trigger !== 'explicit') {
         await this.waitForPageToSettle(page, deadline, check);
+      }
+
+      check();
+
+      const conditions = this.declaredConditions(state);
+      const reported = await wait(this.reportedTags(page));
+      const mismatches = mismatchesOf(conditions, reported);
+      const node = nodeKey(conditions);
+      if (
+        request.trigger === 'condition-change' &&
+        state.lastRecorded?.url === request.url &&
+        state.lastRecorded.node === node
+      ) {
+        return;
+      }
+
+      if (
+        reported === undefined &&
+        compactConditions(conditions) !== undefined &&
+        !warnedNoTracker
+      ) {
+        warnedNoTracker = true;
+        console.warn(
+          'Ralph: this page runs no tracker, so the node conditions the test declares cannot be checked against the tags the app reports. Production events must carry the same tags, or these nodes will match no visitors.',
+        );
       }
 
       if (this.options.reduceMotion) {
@@ -409,20 +514,27 @@ export class Recorder implements Ralph {
 
       this.nodes.push({
         ...request,
+        ...withConditions(conditions),
+        ...(reported === undefined ? {} : { reportedTags: reported }),
+        ...(mismatches.length > 0 ? { tagMismatches: mismatches } : {}),
         status: 'recorded',
         recordedAt: new Date().toISOString(),
         layout: before,
         geometryStable: JSON.stringify(before) === JSON.stringify(after),
         screenshot: await this.saveScreenshot(request.nodeId, image),
       });
+      state.lastRecorded = { url: request.url, node };
     } catch (error) {
       this.nodes.push({
         ...request,
+        ...withConditions(this.declaredConditions(state)),
         status: 'uncaptured',
         reason: navigatedAway() ? 'navigated-away' : 'error',
         message: error instanceof Error ? error.message : String(error),
       });
-      if (request.trigger === 'explicit') {
+      // What the test asked for directly fails it; what the page did on its
+      // own lands in the manifest.
+      if (request.trigger !== 'url-change') {
         throw error;
       }
     } finally {
@@ -552,6 +664,11 @@ export class Recorder implements Ralph {
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
+
+function withConditions(conditions: NodeConditions) {
+  const compact = compactConditions(conditions);
+  return compact === undefined ? {} : { conditions: compact };
+}
 
 function isHttpUrl(url: string): boolean {
   return /^https?:/.test(url);

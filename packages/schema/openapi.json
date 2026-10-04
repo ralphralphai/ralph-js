@@ -112,6 +112,12 @@
               "type": "integer"
             }
           },
+          "pt": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
           "px": {
             "type": "array",
             "items": {
@@ -171,6 +177,12 @@
             "items": {
               "type": "integer"
             }
+          },
+          "vt": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
           }
         }
       },
@@ -214,7 +226,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Interned navigation params, from the native app SDK, which has no urls\nto intern. `cols.a` indexes this.\n\nExactly one of the two tables is present, and which one is what says\nwhether a batch's events address `u` or `a`. That is why neither is\nrejected rather than read as \"no pages\": an SDK that stopped sending\nits table would otherwise be indistinguishable from a flush that\nlegitimately references none, which is every session's last one."
+            "description": "Interned navigation params, from the native app SDK, which has no urls\nto intern. `cols.a` indexes this."
           },
           "buildId": {
             "type": [
@@ -230,6 +242,25 @@
             "format": "int32",
             "description": "Event count. Explicit rather than inferred from `dt.length`, so a\ntruncated or mismatched body fails validation instead of decoding\nshort.",
             "minimum": 0
+          },
+          "pageTagSets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            }
           },
           "sessionId": {
             "type": "string",
@@ -287,6 +318,25 @@
             "format": "int32",
             "description": "Format version.",
             "minimum": 0
+          },
+          "visitorTagSets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            }
           }
         }
       },
@@ -309,6 +359,9 @@
           "dt": {
             "type": "integer"
           },
+          "pt": {
+            "type": "integer"
+          },
           "px": {
             "type": "integer"
           },
@@ -325,6 +378,9 @@
             ]
           },
           "u": {
+            "type": "integer"
+          },
+          "vt": {
             "type": "integer"
           }
         }
@@ -343,6 +399,9 @@
             "type": "integer"
           },
           "dt": {
+            "type": "integer"
+          },
+          "pt": {
             "type": "integer"
           },
           "px": {
@@ -371,6 +430,9 @@
           },
           "u": {
             "type": "integer"
+          },
+          "vt": {
+            "type": "integer"
           }
         }
       },
@@ -393,6 +455,9 @@
           "dt": {
             "type": "integer"
           },
+          "pt": {
+            "type": "integer"
+          },
           "s": {
             "type": "integer"
           },
@@ -409,6 +474,9 @@
             ]
           },
           "u": {
+            "type": "integer"
+          },
+          "vt": {
             "type": "integer"
           }
         }

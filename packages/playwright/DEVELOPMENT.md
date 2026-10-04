@@ -15,10 +15,10 @@ The package records **raw nodes**. The server builds the graph.
   the config snapshot, merges raw nodes into graph nodes, and turns
   `previousNodeId` links into edges.
 
-Nothing is injected into the page under test. The flow comes only from the
-order of URL changes (plus tab openers). An earlier version used an in-page
-click listener to label edges with the clicked element. It was dropped: it put
-code in the app under test, and attribution by timing was unreliable.
+Nothing is injected into the page under test. The flow comes only from the order
+of URL changes (plus tab openers). An earlier version used an in-page click
+listener to label edges with the clicked element. It was dropped: it put code in
+the app under test, and attribution by timing was unreliable.
 
 ## Source layout
 

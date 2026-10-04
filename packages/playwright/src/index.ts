@@ -39,6 +39,12 @@ export type {
   RawPage,
   RawNode,
   RecordNodeOptions,
+  ConditionsDeclaration,
+  NodeConditions,
+  RecordedTags,
+  TagConditions,
+  TagDeclaration,
+  TagValue,
   ConfigSnapshot,
   PageLayout,
   Ralph,
@@ -140,6 +146,10 @@ export const test: TestType<
       _ralphRecorder ?? {
         recordNode: async () => {
           checkOptIn();
+        },
+        setNodeConditions: async () => {
+          checkOptIn();
+          return async () => {};
         },
         waitForCapture: async () => {},
         pause: () => {},

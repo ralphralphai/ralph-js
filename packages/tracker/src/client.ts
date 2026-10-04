@@ -6,3 +6,4 @@
 // uses hooks) without pulling a client boundary in with them.
 
 export { GlobalTracker } from '@/GlobalTracker';
+export { useRalphPage } from '@/useRalphPage';

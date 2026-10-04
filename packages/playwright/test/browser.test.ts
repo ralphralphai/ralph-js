@@ -611,3 +611,43 @@ it('links across pages used while paused', () => {
   expect(nodes[1].previousNodeId).toBe(nodes[0].nodeId);
   expect(pages).toHaveLength(3);
 });
+
+it('records each node under the conditions the test declared', () => {
+  const items = recordedNodes('node conditions');
+  const treatment = { experiment: ['treatment'] };
+  expect(
+    items.map((item) => [
+      new URL(item.url).pathname,
+      item.trigger,
+      item.conditions,
+      item.tagMismatches,
+    ]),
+  ).toEqual([
+    ['/checkout', 'url-change', undefined, undefined],
+    [
+      '/checkout',
+      'condition-change',
+      { visitorTags: { experiment: ['control', 'holdout'] } },
+      undefined,
+    ],
+    ['/checkout', 'condition-change', undefined, undefined],
+    [
+      '/checkout',
+      'condition-change',
+      { visitorTags: treatment },
+      ['visitorTags.experiment'],
+    ],
+    [
+      '/checkout',
+      'condition-change',
+      { visitorTags: treatment, pageTags: { dialog: [null, 'shipping'] } },
+      ['visitorTags.experiment'],
+    ],
+    // A URL change clears what the test declared.
+    ['/other', 'url-change', undefined, undefined],
+  ]);
+  expect(items[4]?.reportedTags).toEqual({
+    visitorTags: { experiment: 'control', account: 'a1' },
+    pageTags: { dialog: 'shipping' },
+  });
+});
