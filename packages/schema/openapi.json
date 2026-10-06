@@ -253,7 +253,7 @@
                     "type": "boolean"
                   },
                   {
-                    "type": "number"
+                    "type": "integer"
                   },
                   {
                     "type": "string"
@@ -329,7 +329,7 @@
                     "type": "boolean"
                   },
                   {
-                    "type": "number"
+                    "type": "integer"
                   },
                   {
                     "type": "string"

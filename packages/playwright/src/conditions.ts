@@ -13,6 +13,14 @@ const declared = (declaration: TagDeclaration = {}): TagConditions => {
       continue;
     }
     const values = Array.isArray(value) ? value : [value];
+    const fractional = values.find(
+      (item) => typeof item === 'number' && !Number.isSafeInteger(item),
+    );
+    if (fractional !== undefined) {
+      throw new Error(
+        `Tag "${key}" is declared as ${fractional}: a tag number must be an integer, since the tracker drops any other.`,
+      );
+    }
     conditions[key] = [...new Set(values.map((item) => item ?? null))];
   }
   return conditions;

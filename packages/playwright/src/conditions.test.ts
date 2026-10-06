@@ -20,6 +20,12 @@ describe('declaredConditions', () => {
       pageTags: { dialog: [null, 'shipping'], step: [2] },
     });
   });
+
+  it('refuses a number that is not an integer', () => {
+    expect(() =>
+      declaredConditions({ visitorTags: { ratio: [1, 0.5] } }),
+    ).toThrow('Tag "ratio" is declared as 0.5');
+  });
 });
 
 describe('mergeConditions', () => {

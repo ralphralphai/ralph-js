@@ -385,6 +385,15 @@ describe('tags', () => {
     ]);
   });
 
+  it('skips a number that is not an integer', () => {
+    const { tracker, buffer, store } = tracked();
+
+    store.setVisitorTags({ tier: 2, ratio: 0.5, huge: 2 ** 53 });
+    tracker.trackPageView();
+
+    expect(tagsOf(buffer[0])).toEqual([{ tier: 2 }, undefined]);
+  });
+
   it('keeps visitor tags across a URL change and clears page tags', () => {
     const { tracker, buffer, store, tagPage, navigate } = tracked();
 

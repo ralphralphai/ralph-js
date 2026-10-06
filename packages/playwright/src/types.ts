@@ -20,6 +20,7 @@ export type RalphOptions = {
 
 export type RecordNodeOptions = { state?: string; url?: string };
 
+/** A `number` must be an integer, because values match by their JSON spelling and a float can be spelled more than one way. */
 export type TagValue = boolean | number | string;
 
 /** One value, or the set of values the node stands for. `null` and `undefined` in a set mean the key is absent. */

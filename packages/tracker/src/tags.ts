@@ -1,6 +1,10 @@
 import type { Tags, TagValue } from '@ralphralphai/schema';
 
-/** What the tag setters accept: an `undefined` value, as a flag lookup returns, is skipped. */
+/**
+ * What the tag setters accept. An `undefined` value, as a flag lookup returns,
+ * is skipped, and so is a number that is not an integer, because ingestion
+ * refuses a batch carrying one.
+ */
 export type TagInput = Record<string, TagValue | undefined>;
 
 export type RecordedTags = { visitorTags: Tags; pageTags: Tags };
@@ -15,12 +19,16 @@ declare global {
   }
 }
 
-const defined = (tags: TagInput): Tags => {
+const recordable = (tags: TagInput): Tags => {
   const kept: Tags = {};
   for (const [key, value] of Object.entries(tags)) {
-    if (value !== undefined) {
-      kept[key] = value;
+    if (value === undefined) {
+      continue;
     }
+    if (typeof value === 'number' && !Number.isSafeInteger(value)) {
+      continue;
+    }
+    kept[key] = value;
   }
   return kept;
 };
@@ -46,7 +54,7 @@ export class TagStore {
   }
 
   setVisitorTags(tags: TagInput): void {
-    this.visitorTags = { ...this.visitorTags, ...defined(tags) };
+    this.visitorTags = { ...this.visitorTags, ...recordable(tags) };
   }
 
   clearVisitorTags(keys?: string[]): void {
@@ -62,7 +70,7 @@ export class TagStore {
   tagPage(tags: TagInput, url: string): () => void {
     this.sync(url);
     const key = Symbol();
-    this.pageLayers.set(key, defined(tags));
+    this.pageLayers.set(key, recordable(tags));
 
     return () => {
       this.pageLayers.delete(key);

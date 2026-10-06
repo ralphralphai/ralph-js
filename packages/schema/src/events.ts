@@ -108,6 +108,7 @@ export const MOUSE_GRID_PX = 5;
 /** `tracks[0]` is reserved, so `tr === 0` means "no tracked element". */
 export const NO_TRACK_INDEX = 0;
 
+/** A `number` must be an integer, because values match by their JSON spelling and a float can be spelled more than one way. */
 export type TagValue = boolean | number | string;
 
 export type Tags = Record<string, TagValue>;
