@@ -21,6 +21,18 @@ describe('declaredConditions', () => {
     });
   });
 
+  it('keeps each value once, undefined and null as one', () => {
+    expect(
+      declaredConditions({
+        visitorTags: { plan: ['pro', 'pro'] },
+        pageTags: { dialog: [undefined, null, 'shipping', 'shipping'] },
+      }),
+    ).toEqual({
+      visitorTags: { plan: ['pro'] },
+      pageTags: { dialog: [null, 'shipping'] },
+    });
+  });
+
   it('refuses a number that is not an integer', () => {
     expect(() =>
       declaredConditions({ visitorTags: { ratio: [1, 0.5] } }),
