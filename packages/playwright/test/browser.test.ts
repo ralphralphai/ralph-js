@@ -174,22 +174,14 @@ it('drops tracked elements that are off-screen horizontally', () => {
   ]);
 });
 
-it('records explicit same-URL states and overrides without changing browser location', () => {
-  const items = recordedNodes('explicit URL overrides');
-  expect(items).toHaveLength(4);
-  expect(
-    items.slice(1).map((item) => [item.state, item.actualUrl, item.url]),
-  ).toEqual([
-    [
-      'dialog',
-      'https://fixture.test/cart',
-      'https://fixture.test/checkout/shipping-options',
-    ],
-    ['absolute', 'https://fixture.test/cart', 'https://logical.test/cart'],
-    ['actual', 'https://fixture.test/cart', 'https://fixture.test/cart'],
+it('retakes the screenshot of the node just recorded in place', () => {
+  const items = recordedNodes('explicit recordings');
+  expect(items.map((item) => [item.trigger, item.url])).toEqual([
+    ['explicit', 'https://fixture.test/cart'],
   ]);
-  expect(items[1].layout.scroll.y).toBe(600);
-  expect(items[1].layout.trackedElements[0].y).toBe(40);
+  expect(items[0].sequence).toBe(0);
+  expect(items[0].layout.scroll.y).toBe(600);
+  expect(items[0].layout.trackedElements[0].y).toBe(40);
 });
 
 it('records during teardown before context closure and follows redirects', () => {

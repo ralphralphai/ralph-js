@@ -18,8 +18,6 @@ export type RalphOptions = {
   strictNodeTags?: boolean;
 };
 
-export type RecordNodeOptions = { state?: string; url?: string };
-
 /** A `number` must be an integer, because values match by their JSON spelling and a float can be spelled more than one way. */
 export type TagValue = boolean | number | string;
 
@@ -49,7 +47,12 @@ export type RecordedTags = {
 };
 
 export type Ralph = {
-  recordNode(page: Page, options?: RecordNodeOptions): Promise<void>;
+  /**
+   * Takes the node's screenshot now, replacing the one taken automatically
+   * when the URL or the declared conditions changed, which can catch the page
+   * mid-transition. Call it once the page shows what the node stands for.
+   */
+  recordNode(page: Page): Promise<void>;
   /**
    * Declares which visitor and page tags the node on screen stands for,
    * merged over earlier declarations until the URL changes, and records the
@@ -90,7 +93,6 @@ export type RawNode = {
   actualUrl: string;
   url: string;
   trigger: 'url-change' | 'condition-change' | 'explicit';
-  state?: string;
   /** What the node stands for, as the test declared it. */
   conditions?: NodeConditions;
   /** What the app's tracker had in effect, absent when the page runs none. */

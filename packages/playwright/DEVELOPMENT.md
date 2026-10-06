@@ -82,7 +82,7 @@ event, `page.opener()`, fixtures), so identity lookups work.
 ### One recording
 
 `enqueueCreateNodeRequest` builds a `CreateNodeRequest` (id, sequence,
-requested time, actual and recorded URL, trigger, optional state) and chains
+requested time, actual and recorded URL, trigger) and chains
 `createNode` onto the tab's `tail`.
 
 `createNode`:

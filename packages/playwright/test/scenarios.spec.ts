@@ -53,7 +53,7 @@ test('paused capture', { tag: '@ralph' }, async ({ page, ralph }) => {
   await ralph.waitForCapture();
   ralph.pause();
   await page.goto('https://fixture.test/b');
-  await ralph.recordNode(page, { state: 'skipped' });
+  await ralph.recordNode(page);
   await page.goto('https://fixture.test/c');
   ralph.resume();
   await page.goto('https://fixture.test/d');
@@ -103,23 +103,12 @@ test(
   },
 );
 
-test('explicit URL overrides', { tag: '@ralph' }, async ({ page, ralph }) => {
+test('explicit recordings', { tag: '@ralph' }, async ({ page, ralph }) => {
   await page.goto('https://fixture.test/cart');
   await ralph.waitForCapture();
   await page.evaluate(() => window.scrollTo(0, 600));
-  await ralph.recordNode(page, {
-    state: 'dialog',
-    url: '/checkout/shipping-options',
-  });
-  await expect(page).toHaveURL('https://fixture.test/cart');
-  await ralph.recordNode(page, {
-    state: 'absolute',
-    url: 'https://logical.test/cart',
-  });
-  await ralph.recordNode(page, { state: 'actual' });
-  await expect(
-    ralph.recordNode(page, { url: 'javascript:alert(1)' }),
-  ).rejects.toThrow('HTTP');
+  await ralph.recordNode(page);
+  await ralph.recordNode(page);
 });
 
 // A stand-in for the tracker: the global the fixture reads its tags from.
@@ -295,7 +284,7 @@ test.describe('off mode', () => {
     { tag: '@ralph' },
     async ({ page, ralph }) => {
       await page.goto('https://fixture.test/off');
-      await ralph.recordNode(page, { url: '/logical' });
+      await ralph.recordNode(page);
       await expect(page).toHaveURL('https://fixture.test/off');
     },
   );

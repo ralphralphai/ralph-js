@@ -38,7 +38,6 @@ export type {
   RawGraphFile,
   RawPage,
   RawNode,
-  RecordNodeOptions,
   ConditionsDeclaration,
   NodeConditions,
   RecordedTags,

@@ -20,7 +20,6 @@ import type {
   RawNode,
   RawPage,
   RawGraphFile,
-  RecordNodeOptions,
   ConfigSnapshot,
   ConditionsDeclaration,
   NodeConditions,
@@ -80,7 +79,7 @@ type PageState = {
   declared: Map<symbol, NodeConditions>;
 
   /** The last node recorded here, so a declaration that leaves the page on it records nothing. */
-  lastRecorded?: { url: string; node: string };
+  lastRecorded?: { url: string; node: string; nodeId: string };
 
   /** The last queued recording. Recordings in a tab run one at a time. */
   tail: Promise<void>;
@@ -187,8 +186,7 @@ export class Recorder implements Ralph {
     }
   }
 
-  /** Records the page as it is now, e.g. an open dialog at the same URL. */
-  async recordNode(page: Page, options: RecordNodeOptions = {}): Promise<void> {
+  async recordNode(page: Page): Promise<void> {
     this.observe(page.context());
     const state = this.pages.get(page);
     if (!state) {
@@ -199,7 +197,7 @@ export class Recorder implements Ralph {
       return;
     }
 
-    await this.enqueueCreateNodeRequest(state, 'explicit', options);
+    await this.enqueueCreateNodeRequest(state, 'explicit');
   }
 
   async setNodeConditions(
@@ -371,7 +369,7 @@ export class Recorder implements Ralph {
 
     if (!this.paused && isHttpUrl(url)) {
       // Automatic recordings never fail the test; failures land in the manifest.
-      void this.enqueueCreateNodeRequest(state, 'url-change', {}).catch(
+      void this.enqueueCreateNodeRequest(state, 'url-change').catch(
         () => undefined,
       );
     }
@@ -379,7 +377,7 @@ export class Recorder implements Ralph {
 
   private async recordConditionChange(state: PageState): Promise<void> {
     if (!this.paused && isHttpUrl(state.page.url())) {
-      await this.enqueueCreateNodeRequest(state, 'condition-change', {});
+      await this.enqueueCreateNodeRequest(state, 'condition-change');
     }
   }
 
@@ -403,17 +401,10 @@ export class Recorder implements Ralph {
   private enqueueCreateNodeRequest(
     state: PageState,
     trigger: RawNode['trigger'],
-    options: RecordNodeOptions,
   ): Promise<void> {
-    const actualUrl = state.page.url();
-    const url =
-      options.url === undefined
-        ? actualUrl
-        : new URL(options.url, actualUrl).href;
-    if (!isHttpUrl(actualUrl) || !isHttpUrl(url)) {
-      throw new Error(
-        'Ralph recordings require HTTP or HTTPS page and recorded URLs.',
-      );
+    const url = state.page.url();
+    if (!isHttpUrl(url)) {
+      throw new Error('Ralph recordings require an HTTP or HTTPS page.');
     }
 
     const request: CreateNodeRequest = {
@@ -421,10 +412,9 @@ export class Recorder implements Ralph {
       pageId: state.info.pageId,
       sequence: state.sequence++,
       requestedAt: new Date().toISOString(),
-      actualUrl,
+      actualUrl: url,
       url,
       trigger,
-      ...(options.state === undefined ? {} : { state: options.state }),
     };
     this.requestedAtMs.set(request.nodeId, Date.now());
     this.lastRequestedNodeId = request.nodeId;
@@ -478,11 +468,15 @@ export class Recorder implements Ralph {
       const reported = await wait(this.reportedTags(page));
       const mismatches = mismatchesOf(conditions, reported);
       const node = nodeKey(conditions);
-      if (
-        request.trigger === 'condition-change' &&
+
+      // The upload merges captures of one URL and conditions into one node,
+      // so a second automatic capture of the node just recorded would be
+      // discarded. An explicit one is the test retaking that node's
+      // screenshot, so it replaces the capture instead of adding one.
+      const sameNode =
         state.lastRecorded?.url === request.url &&
-        state.lastRecorded.node === node
-      ) {
+        state.lastRecorded.node === node;
+      if (sameNode && request.trigger !== 'explicit') {
         return;
       }
 
@@ -512,7 +506,7 @@ export class Recorder implements Ralph {
       const after = await wait(readLayout(page));
       check();
 
-      this.nodes.push({
+      const recorded: RecordedNode = {
         ...request,
         ...withConditions(conditions),
         ...(reported === undefined ? {} : { reportedTags: reported }),
@@ -522,8 +516,22 @@ export class Recorder implements Ralph {
         layout: before,
         geometryStable: JSON.stringify(before) === JSON.stringify(after),
         screenshot: await this.saveScreenshot(request.nodeId, image),
-      });
-      state.lastRecorded = { url: request.url, node };
+      };
+
+      const retaken = sameNode
+        ? this.nodes.findIndex(
+            ({ nodeId }) => nodeId === state.lastRecorded?.nodeId,
+          )
+        : -1;
+
+      if (retaken === -1) {
+        this.nodes.push(recorded);
+        state.lastRecorded = { url: request.url, node, nodeId: request.nodeId };
+      } else {
+        // Keeps the capture's id and place, which later captures link from.
+        const { nodeId, sequence, requestedAt } = this.nodes[retaken]!;
+        this.nodes[retaken] = { ...recorded, nodeId, sequence, requestedAt };
+      }
     } catch (error) {
       this.nodes.push({
         ...request,

@@ -90,24 +90,25 @@ CSS animations and transitions are frozen for the screenshot. For animations
 driven from JavaScript, set `reduceMotion` if your app honors
 `prefers-reduced-motion`.
 
-### Explicitly, for states at the same URL
+### Explicitly, once the page is ready
 
-For dialogs, menus, and tabs, call `ralph.recordNode` after your assertions:
+A capture taken when the URL or the declared conditions change can catch the
+page mid-transition. Call `ralph.recordNode` after your assertions to retake
+the screenshot of the node just recorded:
 
 ```ts
-test('shipping options', { tag: '@ralph' }, async ({ page, ralph }) => {
+test('cart', { tag: '@ralph' }, async ({ page, ralph }) => {
   await page.goto('https://example.com/cart');
-  await page.getByRole('button', { name: 'Shipping options' }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Items' })).toBeVisible();
 
-  await ralph.recordNode(page, {
-    state: 'shipping-options-open',   // a label for this state
-    url: '/checkout/shipping-options', // optional: the URL to record it under
-  });
+  await ralph.recordNode(page);
 });
 ```
 
-`url` only changes what is recorded; the browser doesn't navigate.
+Each call replaces the screenshot, so the last one wins. A dialog at the same
+URL is the same node, so recording it would replace the page's screenshot: give
+it its own node by declaring a page tag for it (below), since that is what
+production events carry.
 
 ### Node conditions, for pages that render differently at one URL
 
