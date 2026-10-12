@@ -136,7 +136,10 @@ export const test: TestType<
   ],
   ralph: async ({ _ralphRecorder, ralphOptions }, use) => {
     const checkOptIn = () => {
-      if (resolveMode(ralphOptions) !== 'off') {
+      if (
+        resolveMode(ralphOptions) !== 'off' &&
+        !ralphOptions.ignoreUntaggedCalls
+      ) {
         throw new Error('Opt this test into Ralph with the @ralph tag.');
       }
     };

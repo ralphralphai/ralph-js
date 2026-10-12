@@ -46,7 +46,7 @@ its function, which is why fixtures with no dependencies still write `{}`.
 | `_ralphConfigs`  | worker |      | Caches the config load per source, so each worker validates `ralph.jsonc` once.                                         |
 | `_ralphScreen`   | test   | yes  | Applies `@ralph-screen:` tags; may skip the test. Runs in every mode.                                                  |
 | `_ralphRecorder` | test   | yes  | Creates a `Recorder` for `@ralph` tests when the mode isn't `off`; `finish()`es it in teardown. In `upload` mode, throws unless the reporter is on. |
-| `ralph`          | test   |      | What tests receive: the recorder, or a stand-in that is a no-op in `off` mode and throws "add the @ralph tag" otherwise. |
+| `ralph`          | test   |      | What tests receive: the recorder, or a stand-in that is a no-op in `off` mode or with `ignoreUntaggedCalls`, and throws "add the @ralph tag" otherwise. |
 | `context`        | test   |      | Override of Playwright's: `observe()`s the context before the test and `stopContext()`s it after.                      |
 
 Notes:

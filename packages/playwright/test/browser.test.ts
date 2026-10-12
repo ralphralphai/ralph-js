@@ -246,6 +246,7 @@ it('does not enroll ordinary tests, native imports, or disabled scenarios', () =
   for (const title of [
     'ordinary test remains unrecorded',
     'explicit recording requires opt-in',
+    'untagged calls are ignored when asked',
     'off needs no config and no browser',
     'off recording is a no-op',
     'native Playwright test',

@@ -187,7 +187,9 @@ Set with `RALPH_MODE` or the `mode` option:
 | `upload` | `@ralph` tests are recorded, and the reporter uploads the run. Default when `RALPH_UPLOAD_KEY` is set. |
 
 Untagged tests are never recorded. In `upload` mode, calling
-`ralph.recordNode` in an untagged test throws.
+`ralph.recordNode`, `ralph.setNodeConditions`, or `ralph.observe` in an
+untagged test throws. Set `ignoreUntaggedCalls` to make them do nothing
+instead, for helpers shared between tagged and untagged tests.
 
 ## Uploading to Ralph
 
@@ -293,6 +295,7 @@ export default defineConfig<RalphFixtures>({
 | `ready`           |                          | `(page, signal) => Promise<void>`. Waits for your app before an automatic recording. Honor `signal`. |
 | `reduceMotion`    | `false`                  | Emulates `prefers-reduced-motion: reduce` and waits for finite animations before recording.     |
 | `strictNodeTags`  | `false`                  | Fails the test when the app reports a tag outside what `ralph.setNodeConditions` declared.      |
+| `ignoreUntaggedCalls` | `false`              | Makes `recordNode`, `setNodeConditions`, and `observe` no-ops in untagged tests instead of throwing. |
 
 ## Reporter options
 

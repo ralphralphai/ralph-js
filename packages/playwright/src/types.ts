@@ -16,6 +16,12 @@ export type RalphOptions = {
    * declared for it. Otherwise the mismatch is only listed on the node.
    */
   strictNodeTags?: boolean;
+  /**
+   * Make `recordNode`, `setNodeConditions`, and `observe` no-ops in tests
+   * without the `@ralph` tag, instead of throwing, so helpers shared with
+   * untagged tests can call them.
+   */
+  ignoreUntaggedCalls?: boolean;
 };
 
 /** A `number` must be an integer, because values match by their JSON spelling and a float can be spelled more than one way. */

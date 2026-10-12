@@ -275,6 +275,25 @@ test('explicit recording requires opt-in', async ({ page, ralph }) => {
   await expect(ralph.recordNode(page)).rejects.toThrow('@ralph');
 });
 
+test.describe('ignored untagged calls', () => {
+  test.use({
+    ralphOptions: async ({ ralphOptions }, use) => {
+      await use({ ...ralphOptions, ignoreUntaggedCalls: true });
+    },
+  });
+  test('untagged calls are ignored when asked', async ({
+    page,
+    context,
+    ralph,
+  }) => {
+    await page.goto('https://fixture.test/ordinary');
+    await ralph.setNodeConditions(page, { visitorTags: { plan: 'pro' } });
+    await ralph.recordNode(page);
+    ralph.observe(context);
+    await ralph.waitForCapture();
+  });
+});
+
 test.describe('off mode', () => {
   test.use({
     ralphOptions: { mode: 'off', configPath: '/missing/config.jsonc' },
