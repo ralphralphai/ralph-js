@@ -265,6 +265,16 @@ it('honors readiness and records bounded readiness failures', () => {
   });
 });
 
+it('clips a page too tall for WebP to what WebP holds', () => {
+  const [tall] = recordedNodes('a page too tall for WebP');
+  expect(tall.screenshot).toMatchObject({
+    contentType: 'image/webp',
+    height: 16_383,
+    width: tall.layout.viewport.width,
+  });
+  expect(tall.layout.document.height).toBe(20_000);
+});
+
 it('publishes a portable screenshot attachment for every recorded node', async () => {
   for (const test of tests) {
     for (const [attemptIndex, data] of (

@@ -337,6 +337,17 @@ test.describe('readiness', () => {
   });
 });
 
+const tallHtml =
+  '<!doctype html><html><body style="margin: 0; height: 20000px"><button data-track-id="top">Top</button></body></html>';
+
+test('a page too tall for WebP', { tag: '@ralph' }, async ({ page, ralph }) => {
+  await page.route('**/*', (route) =>
+    route.fulfill({ contentType: 'text/html', body: tallHtml }),
+  );
+  await page.goto('https://fixture.test/tall');
+  await ralph.waitForCapture();
+});
+
 const animatedHtml =
   '<!doctype html><html><head><style>body { margin: 0 } #slide { position: absolute; left: 20px; top: 40px; width: 120px; height: 32px } #spin { width: 10px; height: 10px; animation: spin 1s linear infinite } @keyframes spin { to { transform: rotate(360deg) } }</style></head><body><div id="slide" data-track-id="slide"></div><div id="spin"></div><script>document.getElementById("slide").animate([{ transform: "translateX(0)" }, { transform: "translateX(100px)" }], { duration: 600, fill: "forwards" })</script></body></html>';
 

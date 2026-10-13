@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test';
  * on real sites, which are mostly photographic content.
  */
 const WEBP_QUALITY = 80;
+const WEBP_MAX_DIMENSION = 16_383;
 
 export type Screenshot = {
   bytes: Buffer;
@@ -30,12 +31,38 @@ export async function takeScreenshot(
     quality: WEBP_QUALITY,
     timeout: Math.max(1, deadline - Date.now()),
   });
-  // WebP stores each dimension in 14 bits, so a page over 16383px has no valid
-  // encoding. Chromium signals that with an empty buffer rather than an error;
-  // PNG has no such limit.
   if (webp.length > 0) {
     return { bytes: webp, contentType: 'image/webp', ...webpSize(webp) };
   }
+
+  // WebP stores each dimension in 14 bits, so a page over 16383px has no valid
+  // encoding, and Chromium signals that with an empty buffer rather than an
+  // error. The page is clipped to what fits rather than scaled down, because
+  // the layout's boxes and the viewer's clicks are CSS pixels from the page's
+  // top left, and a scaled screenshot would misplace every one of them. What
+  // lies past the clip has no image.
+  const documentSize = await page.evaluate(() => {
+    return {
+      width: document.documentElement.scrollWidth,
+      height: document.documentElement.scrollHeight,
+    };
+  });
+  const clipped = await page.screenshot({
+    ...options,
+    type: 'webp',
+    quality: WEBP_QUALITY,
+    clip: {
+      x: 0,
+      y: 0,
+      width: Math.min(documentSize.width, WEBP_MAX_DIMENSION),
+      height: Math.min(documentSize.height, WEBP_MAX_DIMENSION),
+    },
+    timeout: Math.max(1, deadline - Date.now()),
+  });
+  if (clipped.length > 0) {
+    return { bytes: clipped, contentType: 'image/webp', ...webpSize(clipped) };
+  }
+
   const png = await page.screenshot({
     ...options,
     type: 'png',

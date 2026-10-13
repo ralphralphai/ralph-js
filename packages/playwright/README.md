@@ -86,6 +86,9 @@ ralphOptions: {
 },
 ```
 
+Screenshots are WebP. A page taller or wider than 16,383 px, the most WebP can
+hold, is recorded up to that size, and what lies beyond it has no screenshot.
+
 CSS animations and transitions are frozen for the screenshot. For animations
 driven from JavaScript, set `reduceMotion` if your app honors
 `prefers-reduced-motion`.
