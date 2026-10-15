@@ -180,6 +180,7 @@ it('retakes the screenshot of the node just recorded in place', () => {
     ['explicit', 'https://fixture.test/cart'],
   ]);
   expect(items[0].sequence).toBe(0);
+  expect(items[0].name).toBe('Cart');
   expect(items[0].layout.scroll.y).toBe(600);
   expect(items[0].layout.trackedElements[0].y).toBe(40);
 });

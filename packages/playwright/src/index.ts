@@ -41,6 +41,7 @@ export type {
   ConditionsDeclaration,
   NodeConditions,
   RecordedTags,
+  RecordNodeOptions,
   TagConditions,
   TagDeclaration,
   TagValue,

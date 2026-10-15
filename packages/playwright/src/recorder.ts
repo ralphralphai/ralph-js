@@ -24,6 +24,7 @@ import type {
   ConditionsDeclaration,
   NodeConditions,
   RecordedTags,
+  RecordNodeOptions,
   Ralph,
   RalphOptions,
 } from './types';
@@ -186,7 +187,7 @@ export class Recorder implements Ralph {
     }
   }
 
-  async recordNode(page: Page): Promise<void> {
+  async recordNode(page: Page, options?: RecordNodeOptions): Promise<void> {
     this.observe(page.context());
     const state = this.pages.get(page);
     if (!state) {
@@ -197,7 +198,7 @@ export class Recorder implements Ralph {
       return;
     }
 
-    await this.enqueueCreateNodeRequest(state, 'explicit');
+    await this.enqueueCreateNodeRequest(state, 'explicit', options?.name);
   }
 
   async setNodeConditions(
@@ -401,6 +402,7 @@ export class Recorder implements Ralph {
   private enqueueCreateNodeRequest(
     state: PageState,
     trigger: RawNode['trigger'],
+    name?: string,
   ): Promise<void> {
     const url = state.page.url();
     if (!isHttpUrl(url)) {
@@ -415,6 +417,7 @@ export class Recorder implements Ralph {
       actualUrl: url,
       url,
       trigger,
+      ...(name === undefined ? {} : { name }),
     };
     this.requestedAtMs.set(request.nodeId, Date.now());
     this.lastRequestedNodeId = request.nodeId;
@@ -529,8 +532,14 @@ export class Recorder implements Ralph {
         state.lastRecorded = { url: request.url, node, nodeId: request.nodeId };
       } else {
         // Keeps the capture's id and place, which later captures link from.
-        const { nodeId, sequence, requestedAt } = this.nodes[retaken]!;
-        this.nodes[retaken] = { ...recorded, nodeId, sequence, requestedAt };
+        const { nodeId, sequence, requestedAt, name } = this.nodes[retaken]!;
+        this.nodes[retaken] = {
+          ...(name === undefined ? {} : { name }),
+          ...recorded,
+          nodeId,
+          sequence,
+          requestedAt,
+        };
       }
     } catch (error) {
       this.nodes.push({

@@ -108,6 +108,9 @@ test('cart', { tag: '@ralph' }, async ({ page, ralph }) => {
 });
 ```
 
+Pass a `name` to label the node in the graph, e.g.
+`ralph.recordNode(page, { name: 'Cart' })`. A later call without one keeps it.
+
 Each call replaces the screenshot, so the last one wins. A dialog at the same
 URL is the same node, so recording it would replace the page's screenshot: give
 it its own node by declaring a page tag for it (below), since that is what

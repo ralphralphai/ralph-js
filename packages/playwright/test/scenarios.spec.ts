@@ -107,7 +107,7 @@ test('explicit recordings', { tag: '@ralph' }, async ({ page, ralph }) => {
   await page.goto('https://fixture.test/cart');
   await ralph.waitForCapture();
   await page.evaluate(() => window.scrollTo(0, 600));
-  await ralph.recordNode(page);
+  await ralph.recordNode(page, { name: 'Cart' });
   await ralph.recordNode(page);
 });
 
