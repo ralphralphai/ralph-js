@@ -12,6 +12,7 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 
 import type {
+  RawAction,
   RawGraphManifest,
   RawNode,
   RawGraph,
@@ -109,6 +110,15 @@ function manifest(title: string): RawGraph {
   expect(item).toBeDefined();
   return item!.rawGraph;
 }
+/** What each action did, to what, with what value: the fields a reader words it from. */
+function summary(action: RawAction) {
+  return [
+    action.kind,
+    action.target?.role,
+    action.target?.name,
+    action.value,
+  ].filter((part) => part !== undefined);
+}
 function recordedNodes(title: string) {
   return manifest(title).nodes.filter(
     (item): item is Extract<RawNode, { status: 'recorded' }> =>
@@ -164,6 +174,73 @@ it('links each node to the one it was reached from', () => {
   expect(final).toMatchObject({
     status: 'recorded',
     previousNodeId: replaced.nodeId,
+  });
+});
+
+it('records the actions between nodes on the edge into the later one', () => {
+  const data = manifest('navigation flow');
+  const byPath = (pathname: string) =>
+    data.nodes.find((item) => new URL(item.actualUrl).pathname === pathname)!;
+  const actions = (pathname: string) => byPath(pathname).actions?.map(summary);
+
+  expect(byPath('/start').actions).toBeUndefined();
+  expect(actions('/next')).toEqual([['click', 'link', 'Next']]);
+  expect(actions('/back')).toEqual([['goto', 'https://nav.test/back']]);
+  expect(actions('/popup')).toEqual([['click', 'link', 'Popup']]);
+  expect(actions('/a')).toEqual([['click', 'button', 'SPA']]);
+  expect(byPath('/b').actions).toBeUndefined();
+});
+
+it('keeps the navigation of one tab off the edges of another', () => {
+  const data = manifest('independent tabs');
+  const byPath = (pathname: string) =>
+    data.nodes.find((item) => new URL(item.actualUrl).pathname === pathname)!;
+
+  expect(byPath('/other').previousNodeId).toBeUndefined();
+  expect(byPath('/next').actions?.map(summary)).toEqual([
+    ['click', 'link', 'Next'],
+  ]);
+  expect(byPath('/back').actions).toMatchObject([
+    { kind: 'goto', pageId: byPath('/back').pageId },
+  ]);
+});
+
+it('reports actions in a page that loaded before its context was observed', () => {
+  const [, done] = manifest('context observed after its page loaded').nodes;
+  expect(done?.actions?.map(summary)).toEqual([
+    ['fill', 'textbox', 'Email', 'ada@example.com'],
+    ['click', 'button', 'Sign in'],
+  ]);
+});
+
+it('records each action with the element it landed on and no password', () => {
+  const [form, done] = manifest('edge actions').nodes;
+  expect(form.actions).toBeUndefined();
+  expect(done).toMatchObject({
+    previousNodeId: form.nodeId,
+    name: 'Done',
+    edgeLabel: 'Sign in',
+  });
+  expect(done.actions?.map(summary)).toEqual([
+    ['fill', 'textbox', 'Email', 'ada@example.com'],
+    ['fill', 'textbox', 'Password'],
+    ['selectOption', 'combobox', 'State', 'NY'],
+    ['fill', 'textbox', 'Birthday', '2020-01-02'],
+    ['hover', 'link', 'Help'],
+    ['click', 'button', 'Sign in'],
+  ]);
+  expect(done.actions?.[1]).not.toHaveProperty('value');
+  expect(done.actions?.[5]).toMatchObject({
+    kind: 'click',
+    pageId: form.pageId,
+    selector: 'internal:text="Sign in"i',
+    target: {
+      tag: 'button',
+      role: 'button',
+      name: 'Sign in',
+      trackId: 'sign-in',
+      box: { x: 10, y: 600, width: 100, height: 30 },
+    },
   });
 });
 

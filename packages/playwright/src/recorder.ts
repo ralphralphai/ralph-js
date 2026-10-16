@@ -6,6 +6,7 @@ import type { BrowserContext, Frame, Page, TestInfo } from '@playwright/test';
 import playwrightPackage from '@playwright/test/package.json' with { type: 'json' };
 
 import packageInfo from '../package.json';
+import { ActionLog } from './actions';
 import { waitForAnimations } from './animations';
 import {
   compactConditions,
@@ -46,6 +47,9 @@ let warnedNoTracker = false;
 
 const DEFAULT_SETTLE_MS = 150;
 const DEFAULT_RECORD_TIMEOUT_MS = 5_000;
+
+/** The actions kept on one edge, the latest ones, so a long setup does not bloat the graph. */
+const MAX_ACTIONS_PER_EDGE = 100;
 
 /** Where the raw graph and screenshots are written, inside Playwright's per-test output directory. */
 const OUTPUT_DIR = 'ralph';
@@ -144,11 +148,30 @@ export class Recorder implements Ralph {
   /** The most recently requested node, the anchor for tabs used while paused. */
   private lastRequestedNodeId?: string;
 
+  /**
+   * Orders node requests and actions on one counter, which decides the edge
+   * an action belongs to. Timestamps could tie.
+   */
+  private order = 0;
+
+  private readonly requestOrder = new Map<string, number>();
+
+  private readonly actions = new ActionLog(
+    () => ++this.order,
+    () => !this.paused && !this.closed,
+    (page) => this.pages.get(page)?.info.pageId,
+    () =>
+      [...this.pages.values()]
+        .filter((state) => !state.page.isClosed())
+        .map((state) => state.info.pageId),
+  );
+
   constructor(
     private readonly options: RalphOptions,
     private readonly config: ConfigSnapshot,
     private readonly testInfo: TestInfo,
     private readonly mode: RawGraphFile['mode'],
+    playwright?: unknown,
   ) {
     this.settleMs = options.settleMs ?? DEFAULT_SETTLE_MS;
     this.recordTimeoutMs = options.recordTimeoutMs ?? DEFAULT_RECORD_TIMEOUT_MS;
@@ -163,6 +186,8 @@ export class Recorder implements Ralph {
         'Ralph recordTimeoutMs must be finite and greater than settleMs, which must be non-negative.',
       );
     }
+
+    this.actions.attach(playwright);
   }
 
   // ---------------------------------------------------------------------------
@@ -180,6 +205,7 @@ export class Recorder implements Ralph {
 
     const onPage = (page: Page) => this.watchPage(page);
     this.contexts.set(context, onPage);
+    void this.actions.observe(context);
 
     context.on('page', onPage);
     for (const page of context.pages()) {
@@ -198,7 +224,7 @@ export class Recorder implements Ralph {
       return;
     }
 
-    await this.enqueueCreateNodeRequest(state, 'explicit', options?.name);
+    await this.enqueueCreateNodeRequest(state, 'explicit', options);
   }
 
   async setNodeConditions(
@@ -263,6 +289,7 @@ export class Recorder implements Ralph {
    */
   async finish(): Promise<void> {
     this.closed = true;
+    this.actions.detach();
     await Promise.all(
       [...this.contexts.keys()].map((context) => this.stopContext(context)),
     );
@@ -277,6 +304,7 @@ export class Recorder implements Ralph {
       (nodeId) => this.requestedAtMs.get(nodeId) ?? 0,
       (pageId) => this.pageState(pageId)?.pauseAnchor,
     );
+    this.attachActions(nodes);
 
     const failures = nodes.filter(
       (item) => item.status === 'uncaptured' && item.reason === 'error',
@@ -332,6 +360,7 @@ export class Recorder implements Ralph {
       opener: Promise.resolve(),
       onNavigation: (frame) => {
         if (frame === page.mainFrame()) {
+          this.actions.navigated(page);
           this.urlChanged(state);
         }
       },
@@ -402,7 +431,7 @@ export class Recorder implements Ralph {
   private enqueueCreateNodeRequest(
     state: PageState,
     trigger: RawNode['trigger'],
-    name?: string,
+    { name, edgeLabel }: RecordNodeOptions = {},
   ): Promise<void> {
     const url = state.page.url();
     if (!isHttpUrl(url)) {
@@ -418,8 +447,10 @@ export class Recorder implements Ralph {
       url,
       trigger,
       ...(name === undefined ? {} : { name }),
+      ...(edgeLabel === undefined ? {} : { edgeLabel }),
     };
     this.requestedAtMs.set(request.nodeId, Date.now());
+    this.requestOrder.set(request.nodeId, ++this.order);
     this.lastRequestedNodeId = request.nodeId;
 
     const generation = state.generation;
@@ -532,9 +563,11 @@ export class Recorder implements Ralph {
         state.lastRecorded = { url: request.url, node, nodeId: request.nodeId };
       } else {
         // Keeps the capture's id and place, which later captures link from.
-        const { nodeId, sequence, requestedAt, name } = this.nodes[retaken]!;
+        const { nodeId, sequence, requestedAt, name, edgeLabel } =
+          this.nodes[retaken]!;
         this.nodes[retaken] = {
           ...(name === undefined ? {} : { name }),
+          ...(edgeLabel === undefined ? {} : { edgeLabel }),
           ...recorded,
           nodeId,
           sequence,
@@ -609,6 +642,32 @@ export class Recorder implements Ralph {
   // ---------------------------------------------------------------------------
   // Manifest
   // ---------------------------------------------------------------------------
+
+  /** Gives each node the actions taken since the node it was reached from was requested. */
+  private attachActions(nodes: RawNode[]): void {
+    const byId = new Map(nodes.map((item) => [item.nodeId, item]));
+    const windows = nodes.flatMap((item) => {
+      const from = byId.get(item.previousNodeId ?? '');
+      return from
+        ? [
+            {
+              nodeId: item.nodeId,
+              after: this.requestOrder.get(from.nodeId) ?? 0,
+              upTo: this.requestOrder.get(item.nodeId) ?? 0,
+              pageIds: new Set([from.pageId, item.pageId]),
+            },
+          ]
+        : [];
+    });
+
+    const actions = this.actions.assign(windows, MAX_ACTIONS_PER_EDGE);
+    for (const item of nodes) {
+      const taken = actions.get(item.nodeId);
+      if (taken) {
+        item.actions = taken;
+      }
+    }
+  }
 
   private pageState(pageId: string): PageState | undefined {
     return [...this.pages.values()].find(

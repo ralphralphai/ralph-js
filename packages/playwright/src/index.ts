@@ -38,6 +38,9 @@ export type {
   RawGraphFile,
   RawPage,
   RawNode,
+  RawAction,
+  ActionKind,
+  ActionTarget,
   ConditionsDeclaration,
   NodeConditions,
   RecordedTags,
@@ -86,7 +89,11 @@ export const test: TestType<
   _ralphRecorder: [
     // _ralphScreen is specified here so that the playwright treat that it is
     // a dependency of this fixture.
-    async ({ ralphOptions, _ralphConfigs, _ralphScreen }, use, testInfo) => {
+    async (
+      { ralphOptions, _ralphConfigs, _ralphScreen, playwright },
+      use,
+      testInfo,
+    ) => {
       const mode = resolveMode(ralphOptions);
       if (!testInfo.tags.includes('@ralph') || mode === 'off') {
         await use(null);
@@ -125,6 +132,7 @@ export const test: TestType<
         await pending,
         testInfo,
         mode,
+        playwright,
       );
 
       try {

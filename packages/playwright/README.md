@@ -176,6 +176,22 @@ await ralph.waitForCapture();
 await context.close();
 ```
 
+### What happened between two nodes
+
+The Playwright actions a test takes on the way from one node to the next are
+recorded on the edge between them: clicks, hovers, fills, key presses,
+selects, uploads, drags, and `goto` / back / forward / reload. Each one keeps
+the element it landed on (its role, name, and `data-track-id`) and where that
+element was on the earlier node's screenshot, which Ralph shows as, e.g.,
+`Click button "Checkout"`.
+
+What was typed into a password or one-time-code field is never recorded.
+Actions taken while recording is paused are left out.
+
+Pass an `edgeLabel` to describe the step in your own words, e.g.
+`ralph.recordNode(page, { name: 'Done', edgeLabel: 'Sign in' })`. A later call
+without one keeps it.
+
 ### When recording fails
 
 - A failed `recordNode` call rejects.

@@ -42,6 +42,56 @@ test('navigation flow', { tag: '@ralph' }, async ({ context, page, ralph }) => {
   await ralph.waitForCapture();
 });
 
+const signInHtml =
+  '<!doctype html><html><body style="margin: 0; height: 900px">' +
+  '<label for="email">Email</label><input id="email">' +
+  '<input type="password" aria-label="Password">' +
+  '<select aria-label="State"><option>CA</option><option>NY</option></select>' +
+  '<input type="date" aria-label="Birthday">' +
+  '<a href="/help" style="position: absolute; left: 10px; top: 200px">Help</a>' +
+  '<button data-track-id="sign-in" onclick="location.href = \'/done\'" style="position: absolute; left: 10px; top: 600px; width: 100px; height: 30px; margin: 0"><span>Sign in</span></button>' +
+  '</body></html>';
+
+test('edge actions', { tag: '@ralph' }, async ({ context, page, ralph }) => {
+  await context.route('https://edge.test/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: signInHtml }),
+  );
+  await page.goto('https://edge.test/form');
+  await ralph.waitForCapture();
+  await page.getByLabel('Email').fill('ada@example.com');
+  await page.getByLabel('Password').fill('hunter2');
+  // Playwright sets these from script, so their events are untrusted.
+  await page.getByLabel('State').selectOption('NY');
+  await page.getByLabel('Birthday').fill('2020-01-02');
+  await page.getByRole('link', { name: 'Help' }).hover();
+  await page.getByText('Sign in').click();
+  await expect(page).toHaveURL('https://edge.test/done');
+  await ralph.recordNode(page, { name: 'Done', edgeLabel: 'Sign in' });
+  await ralph.recordNode(page);
+});
+
+test(
+  'independent tabs',
+  { tag: '@ralph' },
+  async ({ context, page, ralph }) => {
+    await context.route('https://nav.test/**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: navHtml }),
+    );
+    await page.goto('https://nav.test/start');
+    await ralph.waitForCapture();
+    // A tab of its own, with no opener, so its first node has no edge.
+    const other = await context.newPage();
+    await other.goto('https://nav.test/other');
+    await ralph.waitForCapture();
+    await page.click('[data-follow-id="go-next"]');
+    await expect(page).toHaveURL('https://nav.test/next');
+    await ralph.waitForCapture();
+    // With both tabs open, the tab is the one that navigates.
+    await page.goto('https://nav.test/back');
+    await ralph.waitForCapture();
+  },
+);
+
 test.beforeEach(async ({ context }) => {
   await context.route('https://fixture.test/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: html }),
@@ -255,6 +305,25 @@ test(
     ralph.observe(context);
     const page = await context.newPage();
     await page.goto('https://fixture.test/custom');
+    await ralph.waitForCapture();
+    await context.close();
+  },
+);
+
+test(
+  'context observed after its page loaded',
+  { tag: '@ralph' },
+  async ({ browser, ralph }) => {
+    const context = await browser.newContext();
+    await context.route('https://edge.test/**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: signInHtml }),
+    );
+    const page = await context.newPage();
+    await page.goto('https://edge.test/form');
+    await ralph.recordNode(page);
+    await page.getByLabel('Email').fill('ada@example.com');
+    await page.getByText('Sign in').click();
+    await expect(page).toHaveURL('https://edge.test/done');
     await ralph.waitForCapture();
     await context.close();
   },

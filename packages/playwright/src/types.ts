@@ -58,6 +58,12 @@ export type RecordNodeOptions = {
    * graph. A retake without one keeps the name already given.
    */
   name?: string;
+  /**
+   * How the test got here from the node before, such as `Add to cart`, shown
+   * on the edge into this node beside the actions recorded on it. A retake
+   * without one keeps the label already given.
+   */
+  edgeLabel?: string;
 };
 
 export type Ralph = {
@@ -91,6 +97,53 @@ export type TrackedElement = {
   height: number;
 };
 
+export type ActionKind =
+  | 'click'
+  | 'dblclick'
+  | 'tap'
+  | 'hover'
+  | 'check'
+  | 'uncheck'
+  | 'fill'
+  | 'type'
+  | 'press'
+  | 'selectOption'
+  | 'setInputFiles'
+  | 'dragTo'
+  | 'goto'
+  | 'goBack'
+  | 'goForward'
+  | 'reload';
+
+/** The element an action landed on, as the page showed it at that moment. */
+export type ActionTarget = {
+  tag: string;
+  role?: string;
+  /** What a reader would call it: its label, its text, or its alt text. */
+  name?: string;
+  trackId?: string;
+  /** In CSS pixels from the document's top-left, the space of the screenshot of the node the action was taken on. */
+  box: { x: number; y: number; width: number; height: number };
+};
+
+export type RawAction = {
+  kind: ActionKind;
+  startedAt: string;
+  /** The tab it happened in, known when it reached an element. */
+  pageId?: string;
+  /** What the test acted on, in Playwright's selector syntax. */
+  selector?: string;
+  /**
+   * The text, key, URL, option, or file names, or for `dragTo`, the
+   * selector it was dropped on. Left out for what was typed
+   * into a password or one-time-code field, or into a field the page did not
+   * report.
+   */
+  value?: string;
+  /** Absent when the page reported no element for it, e.g. `goto`. */
+  target?: ActionTarget;
+};
+
 export type PageLayout = {
   viewport: { width: number; height: number };
   document: { width: number; height: number };
@@ -120,6 +173,13 @@ export type RawNode = {
    * failed nodes are included; the server walks past the ones it doesn't show.
    */
   previousNodeId?: string;
+  /** The test's words for how it got here from `previousNodeId`. */
+  edgeLabel?: string;
+  /**
+   * What the test did between requesting `previousNodeId` and this node, in
+   * order. Actions taken while recording was paused are left out.
+   */
+  actions?: RawAction[];
 } & (
   | {
       status: 'recorded';
