@@ -11,6 +11,7 @@ import type { RawGraphManifest } from './types';
 import {
   createRawGraphBundle,
   prepareArtifactUpload,
+  registerDeployment,
   resolveUploadOptions,
   resultLink,
   uploadRawGraph,
@@ -176,6 +177,44 @@ it('prepares an artifact for the app and returns its result link', async () => {
         authorization: 'Bearer secret',
         contentType: 'application/json',
         body: Buffer.from(JSON.stringify({ externalAppId: 'app12345' })),
+      },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+it('registers a deployed build with its config and returns the reserved artifact', async () => {
+  const server = await startServer(() => ({
+    result: 'ok',
+    artifactId: 'artifact-1',
+    resultUrl: 'https://dash.example/projects/1/apps/app12345/builds/abc',
+  }));
+  try {
+    const config = { screenSizes: [{ width: 1280, height: 720 }] };
+    expect(
+      await registerDeployment(server.options, {
+        buildId: 'abc',
+        config,
+        tags: ['main'],
+      }),
+    ).toEqual({
+      artifactId: 'artifact-1',
+      resultUrl: 'https://dash.example/projects/1/apps/app12345/builds/abc',
+    });
+    expect(server.requests).toEqual([
+      {
+        url: '/api/upload/deployment/register',
+        authorization: 'Bearer secret',
+        contentType: 'application/json',
+        body: Buffer.from(
+          JSON.stringify({
+            externalAppId: 'app12345',
+            buildId: 'abc',
+            config,
+            tags: ['main'],
+          }),
+        ),
       },
     ]);
   } finally {

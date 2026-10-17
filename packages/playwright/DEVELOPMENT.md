@@ -185,7 +185,10 @@ from every raw graph by merging nodes on their URLs.
 Two requests, both with `Authorization: Bearer <uploadKey>`:
 
 1. `POST {apiUrl}/api/upload/artifact/prepare` with the JSON body
-   `{ "externalAppId": appId }`. The server reserves an artifact and answers
+   `{ "externalAppId": appId }`, or, for a deployment run,
+   `POST {apiUrl}/api/upload/deployment/register` with
+   `{ externalAppId, buildId, config, tags? }`, which also records the build
+   and its config. The server reserves an artifact and answers
    `{ result: 'ok', artifactId, resultUrl? }`. The result page works from this
    point, showing the run as uploading, then processing, then its graph, so the
    reporter prints the link before it uploads anything.

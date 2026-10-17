@@ -5,7 +5,7 @@ import { createGzip } from 'node:zlib';
 import { pack } from 'tar-stream';
 
 import { imageExtension, type Screenshot } from './image';
-import type { RawGraphManifest } from './types';
+import type { ConfigSnapshot, RawGraphManifest } from './types';
 
 export type UploadOptions = {
   apiUrl: string;
@@ -283,12 +283,41 @@ const PREPARE_TIMEOUT_MS = 30_000;
 export async function prepareArtifactUpload(
   options: UploadOptions,
 ): Promise<PreparedUpload> {
-  const url = checkedApiUrl(options, '/api/upload/artifact/prepare');
+  return reserve(options, '/api/upload/artifact/prepare', {
+    externalAppId: options.appId,
+  });
+}
+
+/**
+ * Records that `buildId` went live under `config`, and reserves the artifact
+ * its run uploads into. The run then becomes that build's graph in Ralph,
+ * where an artifact from `prepareArtifactUpload` stays a standalone result.
+ */
+export async function registerDeployment(
+  options: UploadOptions,
+  deployment: {
+    buildId: string;
+    config: ConfigSnapshot['config'];
+    tags?: string[];
+  },
+): Promise<PreparedUpload> {
+  return reserve(options, '/api/upload/deployment/register', {
+    externalAppId: options.appId,
+    ...deployment,
+  });
+}
+
+async function reserve(
+  options: UploadOptions,
+  route: string,
+  body: Record<string, unknown>,
+): Promise<PreparedUpload> {
+  const url = checkedApiUrl(options, route);
   const reply = await request(
     url,
     {
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ externalAppId: options.appId }),
+      body: JSON.stringify(body),
     },
     options,
     PREPARE_TIMEOUT_MS,

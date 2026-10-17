@@ -18,6 +18,7 @@ import type { RawGraphManifest, RawGraph, RawGraphFile } from './types';
 import {
   RAW_GRAPH_BUNDLE_INDEX,
   prepareArtifactUpload,
+  registerDeployment,
   resolveUploadOptions,
   resultLink,
   bundleImagePath,
@@ -40,6 +41,12 @@ export type RalphReporterOptions = {
   appId?: string;
   /** How long the upload may take, in milliseconds. Defaults to 120000. */
   uploadTimeoutMs?: number;
+  /**
+   * Upload the run as the graph of the deployed build `RALPH_BUILD_ID` names,
+   * rather than as a standalone result. See `registerDeployment`. Defaults to
+   * `RALPH_DEPLOY` being `1`.
+   */
+  deploy?: boolean;
   /**
    * Where the merged raw graph is written, laid out like the uploaded bundle.
    * Defaults to `ralph` inside the first project's output directory.
@@ -121,9 +128,7 @@ export default class RalphReporter implements Reporter {
       let prepared: PreparedUpload | undefined;
       if (uploading) {
         try {
-          prepared = await prepareArtifactUpload(
-            resolveUploadOptions(this.options),
-          );
+          prepared = await this.reserve(merged.manifest);
         } catch (error) {
           const outputDir = await this.write(merged.manifest, screenshots);
           throw new Error(
@@ -174,6 +179,24 @@ export default class RalphReporter implements Reporter {
       );
       return { status: 'failed' };
     }
+  }
+
+  private reserve(manifest: RawGraphManifest): Promise<PreparedUpload> {
+    const options = resolveUploadOptions(this.options);
+    const deploy = this.options.deploy ?? process.env['RALPH_DEPLOY'] === '1';
+    if (!deploy) {
+      return prepareArtifactUpload(options);
+    }
+
+    if (manifest.buildId === undefined) {
+      throw new Error(
+        'A deployment run uploads into its build, so set RALPH_BUILD_ID (or the buildId option) to the deployed build.',
+      );
+    }
+    return registerDeployment(options, {
+      buildId: manifest.buildId,
+      config: manifest.config.config,
+    });
   }
 
   printsToStdio(): boolean {

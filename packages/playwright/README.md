@@ -23,7 +23,7 @@ pnpm exec playwright install chromium
 ```jsonc
 {
   "$schema": "./node_modules/@ralphralphai/config/schema/ralph.schema.json",
-  "screenSizes": [{ "width": 1280, "height": 720 }]
+  "screenSizes": [{ "width": 1280, "height": 720 }],
 }
 ```
 
@@ -33,11 +33,11 @@ for all fields.
 **2. Import `test` from this package and tag tests with `@ralph`:**
 
 ```ts
-import { test, expect } from '@ralphralphai/playwright';
+import { test, expect } from "@ralphralphai/playwright";
 
-test('checkout', { tag: '@ralph' }, async ({ page }) => {
-  await page.goto('https://example.com/cart');
-  await page.getByRole('link', { name: 'Checkout' }).click();
+test("checkout", { tag: "@ralph" }, async ({ page }) => {
+  await page.goto("https://example.com/cart");
+  await page.getByRole("link", { name: "Checkout" }).click();
   await expect(page).toHaveURL(/checkout/);
 });
 ```
@@ -46,7 +46,7 @@ test('checkout', { tag: '@ralph' }, async ({ page }) => {
 
 ```ts
 export default defineConfig({
-  reporter: [['list'], ['@ralphralphai/playwright/reporter']],
+  reporter: [["list"], ["@ralphralphai/playwright/reporter"]],
 });
 ```
 
@@ -100,9 +100,9 @@ page mid-transition. Call `ralph.recordNode` after your assertions to retake
 the screenshot of the node just recorded:
 
 ```ts
-test('cart', { tag: '@ralph' }, async ({ page, ralph }) => {
-  await page.goto('https://example.com/cart');
-  await expect(page.getByRole('list', { name: 'Items' })).toBeVisible();
+test("cart", { tag: "@ralph" }, async ({ page, ralph }) => {
+  await page.goto("https://example.com/cart");
+  await expect(page.getByRole("list", { name: "Items" })).toBeVisible();
 
   await ralph.recordNode(page);
 });
@@ -123,10 +123,10 @@ page state (an open dialog), declare what each screenshot stands for. The test i
 the only source of a node's conditions, including sets of values:
 
 ```ts
-await page.goto('https://example.com/checkout');
+await page.goto("https://example.com/checkout");
 const undo = await ralph.setNodeConditions(page, {
-  visitorTags: { plan: ['pro', 'enterprise'] },
-  pageTags: { dialog: [undefined, 'shipping'] }, // absent, or shipping
+  visitorTags: { plan: ["pro", "enterprise"] },
+  pageTags: { dialog: [undefined, "shipping"] }, // absent, or shipping
 });
 await undo();
 ```
@@ -145,9 +145,9 @@ screenshot is done, the page is `uncaptured`: it's in the graph without a
 screenshot. To make sure a page is captured before leaving it:
 
 ```ts
-await page.goto('https://example.com/pricing');
+await page.goto("https://example.com/pricing");
 await ralph.waitForCapture();
-await page.goto('https://example.com/signup');
+await page.goto("https://example.com/signup");
 ```
 
 ### Pausing capture
@@ -155,12 +155,12 @@ await page.goto('https://example.com/signup');
 To leave steps out of the graph:
 
 ```ts
-await page.goto('https://example.com/a');
+await page.goto("https://example.com/a");
 ralph.pause();
-await page.goto('https://example.com/b'); // not recorded
-await page.goto('https://example.com/c'); // not recorded
+await page.goto("https://example.com/b"); // not recorded
+await page.goto("https://example.com/c"); // not recorded
 ralph.resume();
-await page.goto('https://example.com/d'); // recorded, linked from /a
+await page.goto("https://example.com/d"); // recorded, linked from /a
 ```
 
 This works across tabs. While paused, `recordNode` does nothing. `resume` does
@@ -203,9 +203,9 @@ without one keeps it.
 
 Set with `RALPH_MODE` or the `mode` option:
 
-| Mode     | What happens                                                                                    |
-| -------- | ----------------------------------------------------------------------------------------------- |
-| `off`    | Default. Nothing is recorded, and no config or credentials are needed.                          |
+| Mode     | What happens                                                                                           |
+| -------- | ------------------------------------------------------------------------------------------------------ |
+| `off`    | Default. Nothing is recorded, and no config or credentials are needed.                                 |
 | `upload` | `@ralph` tests are recorded, and the reporter uploads the run. Default when `RALPH_UPLOAD_KEY` is set. |
 
 Untagged tests are never recorded. In `upload` mode, calling
@@ -219,10 +219,10 @@ instead, for helpers shared between tagged and untagged tests.
 2. Set these as environment variables, or `appId` as
    [reporter options](#reporter-options):
 
-   | Variable           | Value                                              |
-   | ------------------ | -------------------------------------------------- |
-   | `RALPH_UPLOAD_KEY` | The upload key. Environment only.                  |
-   | `RALPH_APP_ID`     | The app the recordings belong to.                  |
+   | Variable           | Value                             |
+   | ------------------ | --------------------------------- |
+   | `RALPH_UPLOAD_KEY` | The upload key. Environment only. |
+   | `RALPH_APP_ID`     | The app the recordings belong to. |
 
 3. Run:
 
@@ -252,22 +252,53 @@ RALPH_MODE=upload RALPH_UPLOAD_KEY=… RALPH_APP_ID=… \
   pnpm exec playwright merge-reports --reporter @ralphralphai/playwright/reporter ./all-blob-reports
 ```
 
+### Deployments
+
+When you deploy, upload the run as the graph of the deployed build. Ralph then
+matches tracker events from that build to it.
+
+Set `RALPH_DEPLOY=1` and `RALPH_BUILD_ID` to the build's id, usually the commit
+SHA:
+
+```sh
+RALPH_MODE=upload RALPH_DEPLOY=1 RALPH_BUILD_ID="$COMMIT_SHA" \
+  RALPH_UPLOAD_KEY=… RALPH_APP_ID=… pnpm exec playwright test
+```
+
+If the build goes live before the test run finishes, register it first so the
+tracker picks up its config right away:
+
+```sh
+curl --fail-with-body -X POST https://api.ralphralph.ai/api/upload/deployment/register \
+  -H "Authorization: Bearer $RALPH_UPLOAD_KEY" -H 'content-type: application/json' \
+  -d "{\"externalAppId\":\"$RALPH_APP_ID\",\"buildId\":\"$COMMIT_SHA\",
+       \"reserveArtifact\":false,\"config\":$(cat ralph.json)}"
+```
+
+`ralph.json` here is your `ralph.jsonc` as plain JSON, without comments or
+trailing commas. The test run that follows registers the same build again and
+uploads into it.
+
 ## Screen sizes
 
 Use `ralphProjects` to create one project per entry in `screenSizes`:
 
 ```ts
-import { defineConfig, devices } from '@playwright/test';
-import { ralphProjects, type RalphFixtures } from '@ralphralphai/playwright';
+import { defineConfig, devices } from "@playwright/test";
+import { ralphProjects, type RalphFixtures } from "@ralphralphai/playwright";
 
 export default defineConfig<RalphFixtures>({
   projects: [
-    { name: 'chromium', grepInvert: /@ralph\b/, use: devices['Desktop Chrome'] },
+    {
+      name: "chromium",
+      grepInvert: /@ralph\b/,
+      use: devices["Desktop Chrome"],
+    },
     // Creates "chromium 375x812", "chromium 1280x720", …
     ...ralphProjects({
-      name: 'chromium',
+      name: "chromium",
       grep: /@ralph\b/,
-      use: devices['Desktop Chrome'],
+      use: devices["Desktop Chrome"],
     }),
   ],
 });
@@ -280,12 +311,16 @@ A test runs at every size. To run it only at some sizes, tag it or its
 `describe` block with `@ralph-screen:WIDTHxHEIGHT`, once per size:
 
 ```ts
-test('mobile navigation', { tag: ['@ralph', '@ralph-screen:375x812'] }, async ({ page }) => {
-  await page.getByRole('button', { name: 'Menu' }).click();
-});
+test(
+  "mobile navigation",
+  { tag: ["@ralph", "@ralph-screen:375x812"] },
+  async ({ page }) => {
+    await page.getByRole("button", { name: "Menu" }).click();
+  },
+);
 
-test.describe('desktop layouts', { tag: '@ralph-screen:1280x720' }, () => {
-  test('sidebar', { tag: '@ralph' }, async ({ page }) => {});
+test.describe("desktop layouts", { tag: "@ralph-screen:1280x720" }, () => {
+  test("sidebar", { tag: "@ralph" }, async ({ page }) => {});
 });
 ```
 
@@ -305,19 +340,19 @@ export default defineConfig<RalphFixtures>({
 });
 ```
 
-| Option            | Default                  | What it does                                                                                    |
-| ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `mode`            | `RALPH_MODE`, else `off` | `off` or `upload`. See [Modes](#modes).                                                         |
-| `configPath`      | `ralph.jsonc`            | Path to the config, relative to the Playwright config.                                          |
-| `config`          |                          | An inline config instead of a file (type: `WebRalphConfig`).                                    |
-| `buildId`         | `RALPH_BUILD_ID`         | Your app's build, to line up recordings with its analytics.                                     |
-| `runId`           | `RALPH_RUN_ID`           | Identifies the CI run.                                                                          |
-| `settleMs`        | 150                      | Wait after the DOM loads before an automatic recording.                                         |
-| `recordTimeoutMs` | 5000                     | Budget for one recording, including `settleMs` and `ready`. Must exceed `settleMs`.             |
-| `ready`           |                          | `(page, signal) => Promise<void>`. Waits for your app before an automatic recording. Honor `signal`. |
-| `reduceMotion`    | `false`                  | Emulates `prefers-reduced-motion: reduce` and waits for finite animations before recording.     |
-| `strictNodeTags`  | `false`                  | Fails the test when the app reports a tag outside what `ralph.setNodeConditions` declared.      |
-| `ignoreUntaggedCalls` | `false`              | Makes `recordNode`, `setNodeConditions`, and `observe` no-ops in untagged tests instead of throwing. |
+| Option                | Default                  | What it does                                                                                         |
+| --------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `mode`                | `RALPH_MODE`, else `off` | `off` or `upload`. See [Modes](#modes).                                                              |
+| `configPath`          | `ralph.jsonc`            | Path to the config, relative to the Playwright config.                                               |
+| `config`              |                          | An inline config instead of a file (type: `WebRalphConfig`).                                         |
+| `buildId`             | `RALPH_BUILD_ID`         | Your app's build, to line up recordings with its analytics.                                          |
+| `runId`               | `RALPH_RUN_ID`           | Identifies the CI run.                                                                               |
+| `settleMs`            | 150                      | Wait after the DOM loads before an automatic recording.                                              |
+| `recordTimeoutMs`     | 5000                     | Budget for one recording, including `settleMs` and `ready`. Must exceed `settleMs`.                  |
+| `ready`               |                          | `(page, signal) => Promise<void>`. Waits for your app before an automatic recording. Honor `signal`. |
+| `reduceMotion`        | `false`                  | Emulates `prefers-reduced-motion: reduce` and waits for finite animations before recording.          |
+| `strictNodeTags`      | `false`                  | Fails the test when the app reports a tag outside what `ralph.setNodeConditions` declared.           |
+| `ignoreUntaggedCalls` | `false`                  | Makes `recordNode`, `setNodeConditions`, and `observe` no-ops in untagged tests instead of throwing. |
 
 ## Reporter options
 
@@ -325,12 +360,13 @@ export default defineConfig<RalphFixtures>({
 reporter: [['list'], ['@ralphralphai/playwright/reporter', { appId: 'my-app' }]],
 ```
 
-| Option            | Default                                           | What it does                                    |
-| ----------------- | ------------------------------------------------- | ----------------------------------------------- |
-| `mode`            | `RALPH_MODE`, else `upload` if `RALPH_UPLOAD_KEY` | `upload` uploads the run.                       |
-| `appId`           | `RALPH_APP_ID`                                    | The app the recordings belong to.               |
-| `uploadTimeoutMs` | 120000                                            | Upload timeout.                                 |
-| `outputDir`       | `ralph/` in the first project's output directory  | Where the merged graph is written.              |
+| Option            | Default                                           | What it does                                                     |
+| ----------------- | ------------------------------------------------- | ---------------------------------------------------------------- |
+| `mode`            | `RALPH_MODE`, else `upload` if `RALPH_UPLOAD_KEY` | `upload` uploads the run.                                        |
+| `appId`           | `RALPH_APP_ID`                                    | The app the recordings belong to.                                |
+| `uploadTimeoutMs` | 120000                                            | Upload timeout.                                                  |
+| `deploy`          | `RALPH_DEPLOY` is `1`                             | Uploads the run as its build's. See [Deployments](#deployments). |
+| `outputDir`       | `ralph/` in the first project's output directory  | Where the merged graph is written.                               |
 
 The run is also uploaded when any test ran in `upload` mode.
 
