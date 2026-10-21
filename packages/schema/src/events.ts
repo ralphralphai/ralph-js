@@ -108,6 +108,12 @@ export const MOUSE_GRID_PX = 5;
 /** `tracks[0]` is reserved, so `tr === 0` means "no tracked element". */
 export const NO_TRACK_INDEX = 0;
 
+/**
+ * The server rejects the whole batch past this, so the tracker drops a longer
+ * referrer instead. A serialized URL is ASCII, so its length is its byte count.
+ */
+export const MAX_REFERRER_LENGTH = 2_048;
+
 /** A `number` must be an integer, because values match by their JSON spelling and a float can be spelled more than one way. */
 export type TagValue = boolean | number | string;
 

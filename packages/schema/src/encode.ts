@@ -282,6 +282,7 @@ export type BatchIdentity = {
   userId: string;
   sessionId: string;
   buildId?: string;
+  referrer?: string;
 };
 
 /** The SDK source whose navigation table discriminates the batch. */
@@ -314,6 +315,7 @@ export function encodeBatch(
     userId: identity.userId,
     sessionId: identity.sessionId,
     ...(identity.buildId === undefined ? {} : { buildId: identity.buildId }),
+    ...(identity.referrer === undefined ? {} : { referrer: identity.referrer }),
     t0,
     ...nav,
     tracks: tables.tracks,

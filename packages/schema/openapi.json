@@ -262,6 +262,13 @@
               }
             }
           },
+          "referrer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`document.referrer` of the page load that started the session. Sent\nonly by that page load: a later full load's referrer is the site's own\nprevious page, not where the visitor came from."
+          },
           "sessionId": {
             "type": "string",
             "format": "uuid"

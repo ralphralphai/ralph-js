@@ -2,6 +2,7 @@ import {
   type BatchIdentity,
   type EventBatch,
   encodeBatch,
+  MAX_REFERRER_LENGTH,
   MOUSE_GRID_PX,
   quantizeMouse,
   type RawEvent,
@@ -121,13 +122,16 @@ export class Tracker {
       return;
     }
 
+    // A fresh session id means this is the session's first page.
+    const referrer = existingSession ? undefined : landingReferrer();
+
     this.identity = {
       userId,
       sessionId,
       ...(config.buildId === undefined ? {} : { buildId: config.buildId }),
+      ...(referrer === undefined ? {} : { referrer }),
     };
 
-    // A fresh session id means this is the session's first page.
     if (!existingSession) {
       this.buffer.push({ ty: 6, at: Date.now() });
     }
@@ -342,6 +346,15 @@ export class Tracker {
     return undefined;
   }
 }
+
+const landingReferrer = (): string | undefined => {
+  const referrer = document.referrer;
+  if (referrer === '' || referrer.length > MAX_REFERRER_LENGTH) {
+    return undefined;
+  }
+
+  return referrer;
+};
 
 /** A click's position relative to the tracked element it landed on. */
 const relativeTo = (

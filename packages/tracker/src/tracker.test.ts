@@ -28,7 +28,7 @@ beforeEach(() => {
     scrollX: 0,
     scrollY: 100,
   });
-  vi.stubGlobal('document', { visibilityState: 'visible' });
+  vi.stubGlobal('document', { visibilityState: 'visible', referrer: '' });
 });
 
 afterEach(() => {
@@ -54,6 +54,63 @@ describe('session identity', () => {
     const second: RawEvent[] = [];
     new Tracker({ sendBatch: vi.fn() }, second);
     expect(second).toEqual([]);
+  });
+
+  it('sends the referrer on every batch of the page load that started the session', () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      referrer: 'https://search.example/',
+    });
+    const sent: EventBatch[] = [];
+    const tracker = new Tracker({
+      sendBatch: (batch) => {
+        sent.push(batch);
+      },
+    });
+
+    tracker.trackPageView();
+    void tracker.flush({ keepalive: false });
+    tracker.onPageLeave();
+
+    expect(sent.map((batch) => batch.referrer)).toEqual([
+      'https://search.example/',
+      'https://search.example/',
+    ]);
+  });
+
+  it('sends no referrer from a later page load in the same session', () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      referrer: URL,
+    });
+    new Tracker({ sendBatch: vi.fn() });
+    const sent: EventBatch[] = [];
+    const tracker = new Tracker({
+      sendBatch: (batch) => {
+        sent.push(batch);
+      },
+    });
+
+    tracker.onPageLeave();
+
+    expect(sent[0]!.referrer).toBeUndefined();
+  });
+
+  it('drops a referrer the server would reject the batch for', () => {
+    vi.stubGlobal('document', {
+      visibilityState: 'visible',
+      referrer: `https://search.example/?q=${'a'.repeat(2_048)}`,
+    });
+    const sent: EventBatch[] = [];
+    const tracker = new Tracker({
+      sendBatch: (batch) => {
+        sent.push(batch);
+      },
+    });
+
+    tracker.onPageLeave();
+
+    expect(sent[0]!.referrer).toBeUndefined();
   });
 
   it('disables itself when storage is unavailable', () => {
