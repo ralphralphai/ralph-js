@@ -8,6 +8,7 @@ import playwrightPackage from '@playwright/test/package.json' with { type: 'json
 import packageInfo from '../package.json';
 import { ActionLog } from './actions';
 import { waitForAnimations } from './animations';
+import { captureAriaSnapshot } from './aria_snapshot';
 import {
   compactConditions,
   declaredConditions,
@@ -41,6 +42,9 @@ export const REPORTER_ENV = 'RALPH_PLAYWRIGHT_REPORTER';
 
 /** Prefix of the attachment holding each recorded node's screenshot; the node id follows. */
 export const SCREENSHOT_ATTACHMENT_PREFIX = 'ralph-screenshot-';
+
+/** Prefix of the attachment holding each recorded node's aria snapshot; the node id follows. */
+export const ARIA_SNAPSHOT_ATTACHMENT_PREFIX = 'ralph-aria-snapshot-';
 
 /** Once per worker: a run without the tracker says so once, not per node. */
 let warnedNoTracker = false;
@@ -480,14 +484,17 @@ export class Recorder implements Ralph {
     const navigatedAway = () =>
       state.generation !== generation || page.url() !== request.actualUrl;
 
-    const check = () => {
-      deadline.signal.throwIfAborted();
+    const checkPage = () => {
       if (navigatedAway()) {
         throw new Error('The page navigated before its recording completed.');
       }
       if (page.isClosed()) {
         throw new Error('The page closed before its recording completed.');
       }
+    };
+    const check = () => {
+      deadline.signal.throwIfAborted();
+      checkPage();
     };
 
     try {
@@ -539,6 +546,17 @@ export class Recorder implements Ralph {
       check();
       const after = await wait(readLayout(page));
       check();
+      // Optional, so a snapshot that fails or runs out of time leaves the node
+      // recorded without one, rather than losing its screenshot too.
+      const snapshot = await Promise.race([
+        captureAriaSnapshot(page, after).catch(() => undefined),
+        delay(Math.max(0, deadline.endsAt - Date.now()), undefined, {
+          ref: false,
+        }),
+      ]);
+      // The race ends when the deadline does, so only the page is checked:
+      // a spent budget must not discard the screenshot already taken.
+      checkPage();
 
       const recorded: RecordedNode = {
         ...request,
@@ -550,6 +568,9 @@ export class Recorder implements Ralph {
         layout: before,
         geometryStable: JSON.stringify(before) === JSON.stringify(after),
         screenshot: await this.saveScreenshot(request.nodeId, image),
+        ...(snapshot && {
+          ariaSnapshot: await this.saveAriaSnapshot(request.nodeId, snapshot),
+        }),
       };
 
       const retaken = sameNode
@@ -637,6 +658,26 @@ export class Recorder implements Ralph {
       scale: 'css',
       contentType: image.contentType,
     };
+  }
+
+  /** Writes the snapshot to the test output and attaches it to the report. */
+  private async saveAriaSnapshot(
+    nodeId: string,
+    snapshot: Buffer,
+  ): Promise<NonNullable<RecordedNode['ariaSnapshot']>> {
+    const path = OUTPUT_DIR + '/' + nodeId + '.aria.json';
+    const attachmentName = ARIA_SNAPSHOT_ATTACHMENT_PREFIX + nodeId;
+
+    await mkdir(this.testInfo.outputPath(OUTPUT_DIR), { recursive: true });
+    await writeFile(this.testInfo.outputPath(path), snapshot);
+    await this.testInfo.attach(attachmentName, {
+      ...(this.testInfo.config.preserveOutput === 'always'
+        ? { path: this.testInfo.outputPath(path) }
+        : { body: snapshot }),
+      contentType: 'application/json',
+    });
+
+    return { path, attachmentName };
   }
 
   // ---------------------------------------------------------------------------

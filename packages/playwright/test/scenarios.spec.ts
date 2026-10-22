@@ -161,6 +161,26 @@ test('explicit recordings', { tag: '@ralph' }, async ({ page, ralph }) => {
   await ralph.recordNode(page);
 });
 
+// A sidebar parked off the left edge, and a link far below the fold.
+const ariaHtml =
+  '<!doctype html><html><body style="margin: 0; height: 1400px">' +
+  '<nav style="position: fixed; left: -300px; top: 0; width: 240px"><a href="/menu">Menu</a></nav>' +
+  '<h1 style="margin: 0; font-size: 32px">Pricing</h1>' +
+  '<a href="/faq" style="position: absolute; left: 30px; top: 1000px">FAQ</a>' +
+  '</body></html>';
+
+test('aria snapshots', { tag: '@ralph' }, async ({ context, page, ralph }) => {
+  await context.route('https://aria.test/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: ariaHtml }),
+  );
+  await page.goto('https://aria.test/top');
+  await ralph.waitForCapture();
+  await page.goto('https://aria.test/scrolled');
+  await ralph.waitForCapture();
+  await page.evaluate(() => window.scrollTo(0, 600));
+  await ralph.recordNode(page);
+});
+
 // A stand-in for the tracker: the global the fixture reads its tags from.
 const taggedHtml =
   '<!doctype html><html><body style="margin: 0"><script>' +

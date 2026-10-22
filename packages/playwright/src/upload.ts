@@ -18,6 +18,10 @@ export type RawGraphScreenshot = {
   contentType: Screenshot['contentType'];
   bytes: Uint8Array;
 };
+export type RawGraphAriaSnapshot = {
+  nodeId: string;
+  bytes: Uint8Array;
+};
 /** An artifact the server reserved, which the upload and the manifest must name. */
 export type PreparedUpload = {
   artifactId: string;
@@ -80,10 +84,12 @@ export const MAX_COMPRESSED_BYTES = 256 * 1024 * 1024;
 
 export const RAW_GRAPH_BUNDLE_INDEX = 'raw_graph.json';
 export const RAW_GRAPH_BUNDLE_IMAGE_DIR = 'assets/images';
+export const RAW_GRAPH_BUNDLE_SNAPSHOT_DIR = 'assets/snapshots';
 
 export type RawGraphBundleIndex = {
   manifest: RawGraphManifest;
   screenshots: { nodeId: string; path: string }[];
+  snapshots: { nodeId: string; path: string }[];
 };
 
 /** Where a node's screenshot sits inside the bundle. */
@@ -95,6 +101,14 @@ export function bundleImagePath(
     throw new Error(`Ralph node id is not path-safe: ${nodeId}`);
   }
   return `${RAW_GRAPH_BUNDLE_IMAGE_DIR}/${nodeId}${imageExtension(contentType)}`;
+}
+
+/** Where a node's aria snapshot sits inside the bundle. */
+export function bundleSnapshotPath(nodeId: string): string {
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(nodeId)) {
+    throw new Error(`Ralph node id is not path-safe: ${nodeId}`);
+  }
+  return `${RAW_GRAPH_BUNDLE_SNAPSHOT_DIR}/${nodeId}.json`;
 }
 
 const TOO_BIG =
@@ -110,14 +124,16 @@ class TooBigError extends Error {
  * Packs the manifest and screenshots into a gzipped tar archive, produced as it
  * is read so the compressed bundle is never held whole:
  *
- *   raw_graph.json               { manifest, screenshots: [{ nodeId, path }] }
+ *   raw_graph.json             { manifest, screenshots: [{ nodeId, path }], snapshots: [...] }
  *   assets/images/<id>.webp    raw screenshot bytes (.png when too large for WebP)
+ *   assets/snapshots/<id>.json the node's aria snapshot, when it has one
  *
  * Fails with a `TooBigError` once the compressed bytes pass the limit.
  */
 function rawGraphBundleStream(
   manifest: RawGraphManifest,
   screenshots: readonly RawGraphScreenshot[],
+  snapshots: readonly RawGraphAriaSnapshot[],
 ): Readable {
   if (
     Buffer.byteLength(JSON.stringify(manifest)) > MAX_MANIFEST_BYTES ||
@@ -135,9 +151,21 @@ function rawGraphBundleStream(
     path: bundleImagePath(nodeId, contentType),
     bytes,
   }));
+  const files = [
+    ...images,
+    ...snapshots.map(({ nodeId, bytes }) => ({
+      nodeId,
+      path: bundleSnapshotPath(nodeId),
+      bytes,
+    })),
+  ];
   const index: RawGraphBundleIndex = {
     manifest,
     screenshots: images.map(({ nodeId, path }) => ({ nodeId, path })),
+    snapshots: snapshots.map(({ nodeId }) => ({
+      nodeId,
+      path: bundleSnapshotPath(nodeId),
+    })),
   };
 
   // Fixed attributes keep retries of the same artifact byte-identical.
@@ -151,7 +179,7 @@ function rawGraphBundleStream(
     .entry({ name: RAW_GRAPH_BUNDLE_INDEX, ...attrs }, JSON.stringify(index))
     .on('error', onEntryError);
 
-  for (const { path, bytes } of images) {
+  for (const { path, bytes } of files) {
     tar
       .entry({ name: path, ...attrs }, Buffer.from(bytes))
       .on('error', onEntryError);
@@ -178,9 +206,14 @@ function rawGraphBundleStream(
 export async function createRawGraphBundle(
   manifest: RawGraphManifest,
   screenshots: readonly RawGraphScreenshot[],
+  snapshots: readonly RawGraphAriaSnapshot[] = [],
 ): Promise<Uint8Array> {
   const chunks: Buffer[] = [];
-  for await (const chunk of rawGraphBundleStream(manifest, screenshots)) {
+  for await (const chunk of rawGraphBundleStream(
+    manifest,
+    screenshots,
+    snapshots,
+  )) {
     chunks.push(chunk as Buffer);
   }
   return Buffer.concat(chunks);
@@ -344,6 +377,7 @@ export async function uploadRawGraph(
   manifest: RawGraphManifest,
   screenshots: readonly RawGraphScreenshot[],
   options: UploadOptions,
+  snapshots: readonly RawGraphAriaSnapshot[] = [],
 ): Promise<UploadReceipt> {
   const url = checkedApiUrl(
     options,
@@ -373,7 +407,7 @@ export async function uploadRawGraph(
     {
       headers: { 'content-type': 'application/gzip' },
       body: Readable.toWeb(
-        rawGraphBundleStream(manifest, screenshots),
+        rawGraphBundleStream(manifest, screenshots, snapshots),
       ) as ReadableStream,
       // Required by fetch for a streamed body.
       duplex: 'half',

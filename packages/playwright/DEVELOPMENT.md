@@ -29,6 +29,7 @@ the app under test, and attribution by timing was unreliable.
 | [`src/reporter.ts`](src/reporter.ts)   | `RalphReporter`: merges every test's raw graph into the run's manifest, writes it, and uploads it once.     |
 | [`src/layout.ts`](src/layout.ts)       | Reads viewport, document size, scroll, device pixel ratio, and `data-track-id` boxes from the page.         |
 | [`src/image.ts`](src/image.ts)         | Full-page screenshot as WebP, clipped to 16383px when the page is larger; reads image dimensions from the headers. |
+| [`src/aria_snapshot.ts`](src/aria_snapshot.ts) | The aria tree Ralph diffs between deployments: boxes moved to document space, unreachable elements dropped, distinctive styles and image hashes added. |
 | [`src/upload.ts`](src/upload.ts)       | Builds the `.tar.gz` bundle and POSTs it; resolves upload options.                                          |
 | [`src/config.ts`](src/config.ts)       | Resolves the mode; loads and validates `ralph.jsonc` into a `ConfigSnapshot`.                               |
 | [`src/screens.ts`](src/screens.ts)     | `ralphProjects` and `@ralph-screen:` tag selection.                                                         |

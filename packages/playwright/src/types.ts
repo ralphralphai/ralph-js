@@ -194,6 +194,15 @@ export type RawNode = {
         scale: 'css';
         contentType: 'image/webp' | 'image/png';
       };
+      /**
+       * The page's aria tree with document-space boxes, which Ralph diffs
+       * against the previous deployment. Absent when the capture failed or
+       * ran out of time, or the page's tree is too large to send.
+       */
+      ariaSnapshot?: {
+        path: string;
+        attachmentName: string;
+      };
     }
   | {
       /** The page was visited but has no screenshot. */

@@ -67,8 +67,30 @@ it('encodes a gzipped tar with a JSON index referencing image files', async () =
       { nodeId, path },
       { nodeId: fallbackId, path: fallbackPath },
     ],
+    snapshots: [],
   });
   expect(Buffer.from(files.get(path)!)).toEqual(bytes);
+});
+
+it('adds each aria snapshot beside its screenshot', async () => {
+  const nodeId = randomUUID();
+  const snapshot = Buffer.from('[{"role":"generic","ref":"e1"}]');
+  const compressed = await createRawGraphBundle(
+    manifest,
+    [{ nodeId, contentType: 'image/webp', bytes: Buffer.from([0]) }],
+    [{ nodeId, bytes: snapshot }],
+  );
+  const path = `assets/snapshots/${nodeId}.json`;
+  const files = await readBundle(compressed);
+  expect([...files.keys()]).toEqual([
+    'raw_graph.json',
+    `assets/images/${nodeId}.webp`,
+    path,
+  ]);
+  expect(await readIndex(compressed)).toMatchObject({
+    snapshots: [{ nodeId, path }],
+  });
+  expect(files.get(path)).toEqual(snapshot);
 });
 
 it('rejects node ids that are not path-safe', async () => {
@@ -262,7 +284,7 @@ it('streams the bundle to the prepared artifact and verifies the server receipt'
         url,
         authorization: 'Bearer secret',
         contentType: 'application/gzip',
-        bundle: { manifest, screenshots: [] },
+        bundle: { manifest, screenshots: [], snapshots: [] },
       })),
     );
   } finally {

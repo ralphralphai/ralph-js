@@ -9,7 +9,7 @@ Untagged tests are untouched, and recording is off unless you turn it on.
 
 ## Install
 
-Requires Node.js 20.19+ and Playwright Test 1.62.1+ (major version 1).
+Requires Node.js 20.19+ and Playwright Test 1.63+ (major version 1).
 
 ```sh
 pnpm add -D @ralphralphai/playwright @playwright/test

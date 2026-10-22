@@ -22,8 +22,10 @@ import {
   resolveUploadOptions,
   resultLink,
   bundleImagePath,
+  bundleSnapshotPath,
   uploadRawGraph,
   type PreparedUpload,
+  type RawGraphAriaSnapshot,
   type RawGraphBundleIndex,
   type RawGraphScreenshot,
 } from './upload';
@@ -58,7 +60,7 @@ export type RalphReporterOptions = {
 type Collected = {
   file: RawGraphFile;
   status: TestResult['status'];
-  /** Screenshot attachment paths or preserved bodies, by attachment name. */
+  /** Screenshot and snapshot attachment paths or preserved bodies, by attachment name. */
   attachments: Map<string, string | Buffer>;
 };
 
@@ -119,6 +121,14 @@ export default class RalphReporter implements Reporter {
           }),
         ),
       );
+      const snapshots = await Promise.all(
+        merged.snapshots.map(
+          async ({ nodeId, source }): Promise<RawGraphAriaSnapshot> => ({
+            nodeId,
+            bytes: typeof source === 'string' ? await readFile(source) : source,
+          }),
+        ),
+      );
       const uploading =
         resolveMode(this.options) === 'upload' ||
         collected.some(({ file }) => file.mode === 'upload');
@@ -130,7 +140,11 @@ export default class RalphReporter implements Reporter {
         try {
           prepared = await this.reserve(merged.manifest);
         } catch (error) {
-          const outputDir = await this.write(merged.manifest, screenshots);
+          const outputDir = await this.write(
+            merged.manifest,
+            screenshots,
+            snapshots,
+          );
           throw new Error(
             `${error instanceof Error ? error.message : String(error)} The recording was saved to ${outputDir}.`,
             { cause: error },
@@ -148,7 +162,7 @@ export default class RalphReporter implements Reporter {
         (total, graph) => total + graph.nodes.length,
         0,
       );
-      const outputDir = await this.write(manifest, screenshots);
+      const outputDir = await this.write(manifest, screenshots, snapshots);
       log(
         `Ralph: merged ${manifest.rawGraphs.length} test(s), ${nodeCount} node(s) into ${outputDir}`,
       );
@@ -158,6 +172,7 @@ export default class RalphReporter implements Reporter {
           manifest,
           screenshots,
           resolveUploadOptions(this.options),
+          snapshots,
         ).catch((error: unknown) => {
           throw new Error(
             `${error instanceof Error ? error.message : String(error)} The recording was saved to ${outputDir}.`,
@@ -203,10 +218,11 @@ export default class RalphReporter implements Reporter {
     return false;
   }
 
-  /** Merges the tests into one manifest, with where to read their screenshots. */
+  /** Merges the tests into one manifest, with where to read their screenshots and snapshots. */
   private merge(collected: Collected[]): {
     manifest: RawGraphManifest;
     images: (Omit<RawGraphScreenshot, 'bytes'> & { source: string | Buffer })[];
+    snapshots: { nodeId: string; source: string | Buffer }[];
   } {
     const [first] = collected;
     const same = (pick: (file: RawGraphFile) => unknown, what: string) => {
@@ -225,6 +241,7 @@ export default class RalphReporter implements Reporter {
     const images: (Omit<RawGraphScreenshot, 'bytes'> & {
       source: string | Buffer;
     })[] = [];
+    const snapshots: { nodeId: string; source: string | Buffer }[] = [];
     const rawGraphs = collected
       .map(({ file, status, attachments }): RawGraph => {
         const nodes = file.rawGraph.nodes.map((node) => {
@@ -242,12 +259,28 @@ export default class RalphReporter implements Reporter {
             contentType: node.screenshot.contentType,
             source,
           });
+          // A snapshot is optional, so one missing from the results drops
+          // from the node rather than failing the run.
+          const snapshot =
+            node.ariaSnapshot &&
+            attachments.get(node.ariaSnapshot.attachmentName);
+          if (snapshot !== undefined) {
+            snapshots.push({ nodeId: node.nodeId, source: snapshot });
+          }
+          const { ariaSnapshot, ...rest } = node;
           return {
-            ...node,
+            ...rest,
             screenshot: {
               ...node.screenshot,
               path: bundleImagePath(node.nodeId, node.screenshot.contentType),
             },
+            ...(ariaSnapshot &&
+              snapshot !== undefined && {
+                ariaSnapshot: {
+                  ...ariaSnapshot,
+                  path: bundleSnapshotPath(node.nodeId),
+                },
+              }),
           };
         });
         return {
@@ -288,13 +321,15 @@ export default class RalphReporter implements Reporter {
     return {
       manifest,
       images,
+      snapshots,
     };
   }
 
-  /** Writes the manifest and screenshots in the bundle's layout. */
+  /** Writes the manifest, screenshots and snapshots in the bundle's layout. */
   private async write(
     manifest: RawGraphManifest,
     screenshots: RawGraphScreenshot[],
+    snapshots: RawGraphAriaSnapshot[],
   ): Promise<string> {
     const outputDir = path.resolve(
       this.options.outputDir ??
@@ -306,7 +341,11 @@ export default class RalphReporter implements Reporter {
     );
     await rm(outputDir, { recursive: true, force: true });
 
-    const index: RawGraphBundleIndex = { manifest, screenshots: [] };
+    const index: RawGraphBundleIndex = {
+      manifest,
+      screenshots: [],
+      snapshots: [],
+    };
     for (const { nodeId, contentType, bytes } of screenshots) {
       const imagePath = bundleImagePath(nodeId, contentType);
       index.screenshots.push({ nodeId, path: imagePath });
@@ -314,6 +353,14 @@ export default class RalphReporter implements Reporter {
         recursive: true,
       });
       await writeFile(path.join(outputDir, imagePath), bytes);
+    }
+    for (const { nodeId, bytes } of snapshots) {
+      const snapshotPath = bundleSnapshotPath(nodeId);
+      index.snapshots.push({ nodeId, path: snapshotPath });
+      await mkdir(path.dirname(path.join(outputDir, snapshotPath)), {
+        recursive: true,
+      });
+      await writeFile(path.join(outputDir, snapshotPath), bytes);
     }
     await mkdir(outputDir, { recursive: true });
     await writeFile(

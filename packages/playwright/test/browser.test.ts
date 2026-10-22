@@ -732,3 +732,29 @@ it('records each node under the conditions the test declared', () => {
     pageTags: { dialog: 'shipping' },
   });
 });
+
+it('captures an aria snapshot per node, in document space, whatever the scroll', async () => {
+  const [top, scrolled] = recordedNodes('aria snapshots');
+  expect(scrolled?.layout.scroll.y).toBe(600);
+
+  const snapshotOf = async (node: (typeof top & {}) | undefined) => {
+    const entry = merged.snapshots.find(
+      ({ nodeId }) => nodeId === node?.nodeId,
+    );
+    expect(entry?.path).toBe(`assets/snapshots/${node?.nodeId}.json`);
+    const json = await readFile(
+      path.join(output, 'artifacts', 'ralph', entry!.path),
+      'utf8',
+    );
+    // Refs are Playwright's per-snapshot numbering, not part of the page.
+    return JSON.parse(json.replace(/"ref":"[^"]*",?/g, '')) as unknown;
+  };
+
+  const snapshot = await snapshotOf(top);
+  expect(await snapshotOf(scrolled)).toEqual(snapshot);
+  const json = JSON.stringify(snapshot);
+  expect(json).toContain('"name":"FAQ"');
+  expect(json).toContain('"y":1000');
+  expect(json).toContain('"font-size":"32px"');
+  expect(json).not.toContain('Menu');
+});
