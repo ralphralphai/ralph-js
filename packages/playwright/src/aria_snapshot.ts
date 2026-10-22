@@ -18,9 +18,46 @@ const STYLE_PROPERTIES = [
   'font-size',
   'font-weight',
   'font-style',
+  'line-height',
+  'letter-spacing',
   'color',
   'background-color',
+  'text-align',
+  'text-transform',
 ];
+// Each with its initial value. Unlike fonts these are not inherited, so a
+// child that repeats its parent's padding really has that padding: they are
+// kept when set at all, not when they differ from the parent's.
+const UNINHERITED_PROPERTIES: Record<string, string> = {
+  'padding-top': '0px',
+  'padding-right': '0px',
+  'padding-bottom': '0px',
+  'padding-left': '0px',
+  'margin-top': '0px',
+  'margin-right': '0px',
+  'margin-bottom': '0px',
+  'margin-left': '0px',
+  'row-gap': 'normal',
+  'column-gap': 'normal',
+  'justify-content': 'normal',
+  'align-items': 'normal',
+  'flex-direction': 'row',
+  'grid-template-columns': 'none',
+  order: '0',
+  'border-width': '0px',
+  'border-color': 'currentcolor',
+  'border-radius': '0px',
+  'box-shadow': 'none',
+  opacity: '1',
+  'text-decoration-line': 'none',
+};
+// Anything else takes its size from its text or its parent, which is reported
+// as that change. An image has neither, so its size is the only sign it was
+// resized.
+const IMAGE_PROPERTIES: Record<string, string> = {
+  width: 'auto',
+  height: 'auto',
+};
 const TRANSPARENT = 'rgba(0, 0, 0, 0)';
 const ELEMENT_LOOKUP_TIMEOUT_MS = 2000;
 
@@ -237,7 +274,14 @@ async function readElement(
               image: { src: new URL(backgroundUrl, document.baseURI).href },
             };
       },
-      { properties: STYLE_PROPERTIES, isImage },
+      {
+        properties: [
+          ...STYLE_PROPERTIES,
+          ...Object.keys(UNINHERITED_PROPERTIES),
+          ...(isImage ? Object.keys(IMAGE_PROPERTIES) : []),
+        ],
+        isImage,
+      },
       { timeout: ELEMENT_LOOKUP_TIMEOUT_MS },
     );
   } catch {
@@ -283,9 +327,22 @@ async function hashImage(
 
 // Fonts and color are inherited, so recording them on every element would
 // turn one change on the body into a change on every element. Only what an
-// element sets differently from its parent is kept.
+// element sets differently from its parent is kept, except the uninherited and
+// image properties.
 function distinctStyle(style: Style, inherited: Style): Style | undefined {
   const distinct = Object.entries(style).filter(([property, value]) => {
+    // Computed, `currentcolor` is the text color, so without a border it
+    // would record every element's color a second time.
+    if (property === 'border-color') {
+      return style['border-width'] !== '0px';
+    }
+
+    const initial =
+      UNINHERITED_PROPERTIES[property] ?? IMAGE_PROPERTIES[property];
+    if (initial !== undefined) {
+      return value !== initial;
+    }
+
     if (property === 'background-color' && value === TRANSPARENT) {
       return false;
     }

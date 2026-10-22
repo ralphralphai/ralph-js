@@ -756,5 +756,16 @@ it('captures an aria snapshot per node, in document space, whatever the scroll',
   expect(json).toContain('"name":"FAQ"');
   expect(json).toContain('"y":1000');
   expect(json).toContain('"font-size":"32px"');
+  expect(json).toContain('"line-height":"44px"');
+  expect(json).toContain('"letter-spacing":"-0.8px"');
+  expect(json).toContain('"padding-left":"24px"');
+  expect(json).not.toContain('"padding-top":"0px"');
+  expect(json).toContain(
+    '"border-width":"1px","border-color":"rgb(229, 231, 235)","border-radius":"8px"',
+  );
+  expect(json).toContain('"text-transform":"uppercase"');
+  expect(json).not.toContain('"box-shadow"');
+  expect(json).toContain('"width":"120px","height":"40px"');
+  expect(json).not.toContain('"width":"auto"');
   expect(json).not.toContain('Menu');
 });
