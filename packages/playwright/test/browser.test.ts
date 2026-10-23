@@ -793,4 +793,14 @@ it('captures an aria snapshot per node, in document space, whatever the scroll',
   expect(json).toContain('"width":"120px","height":"40px"');
   expect(json).not.toContain('"width":"auto"');
   expect(json).not.toContain('Menu');
+  const dynamic: unknown[] = [];
+  JSON.parse(json, (_key, value: unknown) => {
+    if ((value as { dynamic?: boolean } | null)?.dynamic === true) {
+      dynamic.push(value);
+    }
+    return value;
+  });
+  expect(dynamic).toEqual([expect.objectContaining({ role: 'article' })]);
+  expect(json).not.toContain('Tracker');
+  expect(json).not.toContain('Pixel');
 });

@@ -60,6 +60,14 @@ const IMAGE_PROPERTIES: Record<string, string> = {
 };
 const TRANSPARENT = 'rgba(0, 0, 0, 0)';
 const ELEMENT_LOOKUP_TIMEOUT_MS = 2000;
+// Marks a subtree whose text, links and images the server generates on every
+// request, such as a blog listing or a price quote. The diff compares only its
+// structure and styles.
+const DYNAMIC_ATTRIBUTE = 'data-ralph-dynamic';
+// Tracking pixels and hidden widget loaders (GTM, Stripe, chat) mount as
+// iframes this small. Nobody sees them, and their content changes on every
+// load.
+const MIN_IFRAME_SIZE = 5;
 
 type Box = { x: number; y: number; width: number; height: number };
 type Offset = Pick<Box, 'x' | 'y'>;
@@ -70,11 +78,12 @@ type AriaNode = {
   box?: Box;
   style?: Style;
   imageHash?: string;
+  dynamic?: boolean;
   children?: AriaChild[];
 };
 type AriaChild = AriaNode | string;
 type ImageSource = { src: string } | { markup: string };
-type ElementFacts = { style: Style; image?: ImageSource };
+type ElementFacts = { style: Style; dynamic: boolean; image?: ImageSource };
 
 /**
  * The page's aria tree as JSON, with each element's box in document
@@ -107,7 +116,7 @@ export async function captureAriaSnapshot(
   // Generated refs do not resolve as `aria-ref=` locators, so the elements
   // are described while they still carry only Playwright's refs.
   const described = await Promise.all(
-    visible.map((node) => describe(page, node, {})),
+    visible.map((node) => describe(page, node, {}, false)),
   );
 
   const json = Buffer.from(JSON.stringify(fillMissingRefs(described)));
@@ -204,6 +213,14 @@ function keepShown(
   node: AriaNode,
   viewportWidth: number,
 ): AriaNode | undefined {
+  if (
+    node.role === 'iframe' &&
+    node.box !== undefined &&
+    (node.box.width < MIN_IFRAME_SIZE || node.box.height < MIN_IFRAME_SIZE)
+  ) {
+    return undefined;
+  }
+
   const shown = isShown(node, viewportWidth);
   const children = (node.children ?? []).flatMap((child): AriaChild[] => {
     if (typeof child === 'string') {
@@ -243,7 +260,7 @@ async function readElement(
 ): Promise<ElementFacts | undefined> {
   try {
     return await page.locator(`aria-ref=${ref}`).evaluate(
-      (element, { properties, isImage }) => {
+      (element, { properties, isImage, dynamicAttribute }) => {
         const computed = getComputedStyle(element);
         const style = Object.fromEntries(
           properties.map((property) => [
@@ -251,26 +268,34 @@ async function readElement(
             computed.getPropertyValue(property),
           ]),
         );
+        // `closest`, because the marked element need not be in the aria
+        // tree: a plain wrapper `div` around a card often is not.
+        const dynamic = element.closest(`[${dynamicAttribute}]`) !== null;
 
         if (!isImage) {
-          return { style };
+          return { style, dynamic };
         }
 
         if (element instanceof HTMLImageElement) {
-          return { style, image: { src: element.currentSrc || element.src } };
+          return {
+            style,
+            dynamic,
+            image: { src: element.currentSrc || element.src },
+          };
         }
 
         if (element instanceof SVGElement) {
-          return { style, image: { markup: element.outerHTML } };
+          return { style, dynamic, image: { markup: element.outerHTML } };
         }
 
         const backgroundUrl = /url\("(.+)"\)/.exec(
           computed.backgroundImage,
         )?.[1];
         return backgroundUrl === undefined
-          ? { style }
+          ? { style, dynamic }
           : {
               style,
+              dynamic,
               image: { src: new URL(backgroundUrl, document.baseURI).href },
             };
       },
@@ -281,6 +306,7 @@ async function readElement(
           ...(isImage ? Object.keys(IMAGE_PROPERTIES) : []),
         ],
         isImage,
+        dynamicAttribute: DYNAMIC_ATTRIBUTE,
       },
       { timeout: ELEMENT_LOOKUP_TIMEOUT_MS },
     );
@@ -351,10 +377,13 @@ function distinctStyle(style: Style, inherited: Style): Style | undefined {
   return distinct.length === 0 ? undefined : Object.fromEntries(distinct);
 }
 
+// `dynamic` is recorded only at the top of a marked subtree, and the diff
+// applies it to everything below, which keeps it off every descendant.
 async function describe(
   page: Page,
   child: AriaChild,
   inherited: Style,
+  insideDynamic: boolean,
 ): Promise<AriaChild> {
   if (typeof child === 'string') {
     return child;
@@ -368,12 +397,18 @@ async function describe(
     facts === undefined ? undefined : distinctStyle(facts.style, inherited);
   const imageHash =
     facts?.image === undefined ? undefined : await hashImage(page, facts.image);
+  const dynamic = facts?.dynamic === true && !insideDynamic;
   const children =
     child.children === undefined
       ? undefined
       : await Promise.all(
           child.children.map((grandchild) =>
-            describe(page, grandchild, facts?.style ?? inherited),
+            describe(
+              page,
+              grandchild,
+              facts?.style ?? inherited,
+              insideDynamic || dynamic,
+            ),
           ),
         );
 
@@ -381,6 +416,7 @@ async function describe(
     ...child,
     ...(style && { style }),
     ...(imageHash && { imageHash }),
+    ...(dynamic && { dynamic }),
     ...(children && { children }),
   };
 }
