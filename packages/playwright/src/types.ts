@@ -1,4 +1,4 @@
-import type { BrowserContext, Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
 import type { WebRalphConfig } from '@ralphralphai/config';
 
 export type RalphOptions = {
@@ -66,6 +66,14 @@ export type RecordNodeOptions = {
   edgeLabel?: string;
 };
 
+export type VisitAllLinksOptions = {
+  /**
+   * Runs in each opened tab before it closes, e.g. to assert where it landed
+   * or to `recordNode` it with a name.
+   */
+  onVisit?: (page: Page) => Promise<void>;
+};
+
 export type Ralph = {
   /**
    * Takes the node's screenshot now, replacing the one taken automatically
@@ -84,6 +92,13 @@ export type Ralph = {
     conditions: ConditionsDeclaration,
   ): Promise<() => Promise<void>>;
   waitForCapture(): Promise<void>;
+  /**
+   * Opens each link `links` matches in its own tab, one at a time, records
+   * it, and closes it, so every target links from the page the links are on
+   * rather than from the target before it. Throws before opening any when a
+   * match is not an `<a href>`.
+   */
+  visitAllLinks(links: Locator, options?: VisitAllLinksOptions): Promise<void>;
   pause(): void;
   resume(): void;
   observe(context: BrowserContext): void;

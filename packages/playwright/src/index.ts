@@ -13,6 +13,7 @@ import { loadConfig, resolveMode } from './config';
 import { Recorder, REPORTER_ENV } from './recorder';
 import { applyScreenSelection } from './screens';
 import type { ConfigSnapshot, Ralph, RalphOptions } from './types';
+import { visitAllLinks } from './visit_links';
 
 export { expect, mergeTests } from '@playwright/test';
 export type { WebRalphConfig } from '@ralphralphai/config';
@@ -53,6 +54,7 @@ export type {
   Ralph,
   RalphOptions,
   TrackedElement,
+  VisitAllLinksOptions,
 } from './types';
 
 export type RalphFixtures = { ralph: Ralph; ralphOptions: RalphOptions };
@@ -163,6 +165,8 @@ export const test: TestType<
           return async () => {};
         },
         waitForCapture: async () => {},
+        visitAllLinks: (links, options) =>
+          visitAllLinks(links, async () => {}, options),
         pause: () => {},
         resume: () => {},
         observe: () => {

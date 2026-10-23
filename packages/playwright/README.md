@@ -150,6 +150,26 @@ await ralph.waitForCapture();
 await page.goto("https://example.com/signup");
 ```
 
+### Visiting every link on a page
+
+To record each link of a listing or menu as a step from that page, rather
+than from the link visited before it:
+
+```ts
+await page.goto("https://example.com/blog");
+await ralph.waitForCapture();
+await ralph.visitAllLinks(page.locator("a.article:visible"), {
+  onVisit: async (article) => {
+    await expect(article).toHaveURL(/\/blog\/.+/);
+  },
+});
+```
+
+Each link opens in its own tab, is recorded, and closes before the next one
+opens. The edge into each target carries the click. Every match must be a link
+(`<a href>`): a button that navigates by script can't open in a new tab, so the
+call throws before opening any.
+
 ### Pausing capture
 
 To leave steps out of the graph:

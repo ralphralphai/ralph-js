@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import type { BrowserContext, Frame, Page, TestInfo } from '@playwright/test';
+import type {
+  BrowserContext,
+  Frame,
+  Locator,
+  Page,
+  TestInfo,
+} from '@playwright/test';
 import playwrightPackage from '@playwright/test/package.json' with { type: 'json' };
 
 import packageInfo from '../package.json';
@@ -29,7 +35,9 @@ import type {
   RecordNodeOptions,
   Ralph,
   RalphOptions,
+  VisitAllLinksOptions,
 } from './types';
+import { visitAllLinks } from './visit_links';
 
 /** The attachment holding a test's `RawGraphFile`, which the reporter merges. */
 export const MANIFEST_ATTACHMENT = 'ralph-raw-graph';
@@ -269,6 +277,10 @@ export class Recorder implements Ralph {
   /** Waits until every page recording requested so far has finished. */
   async waitForCapture(): Promise<void> {
     await Promise.all([...this.pages.values()].map((state) => state.tail));
+  }
+
+  visitAllLinks(links: Locator, options?: VisitAllLinksOptions): Promise<void> {
+    return visitAllLinks(links, () => this.waitForCapture(), options);
   }
 
   /** Stops watching `context` and waits for its queued recordings. */

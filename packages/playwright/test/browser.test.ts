@@ -191,6 +191,31 @@ it('records the actions between nodes on the edge into the later one', () => {
   expect(byPath('/b').actions).toBeUndefined();
 });
 
+it('links every target visitAllLinks opens from the page the links are on', () => {
+  const { nodes, pages } = manifest('visit all links');
+  const byPath = (pathname: string) =>
+    nodes.find((item) => new URL(item.actualUrl).pathname === pathname)!;
+  const hub = byPath('/hub');
+
+  expect(nodes).toHaveLength(3);
+  expect(pages).toHaveLength(3);
+  expect(byPath('/one').previousNodeId).toBe(hub.nodeId);
+  expect(byPath('/two').previousNodeId).toBe(hub.nodeId);
+  expect(byPath('/one').actions?.map(summary)).toEqual([
+    ['click', 'link', 'One'],
+  ]);
+  expect(byPath('/two').actions?.map(summary)).toEqual([
+    ['click', 'link', 'Two'],
+  ]);
+});
+
+it('rejects a non-link match before visiting any', () => {
+  const { nodes } = manifest('visit all links rejects non-links');
+  expect(nodes.map((item) => new URL(item.actualUrl).pathname)).toEqual([
+    '/hub',
+  ]);
+});
+
 it('keeps the navigation of one tab off the edges of another', () => {
   const data = manifest('independent tabs');
   const byPath = (pathname: string) =>

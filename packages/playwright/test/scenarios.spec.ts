@@ -42,6 +42,52 @@ test('navigation flow', { tag: '@ralph' }, async ({ context, page, ralph }) => {
   await ralph.waitForCapture();
 });
 
+const hubHtml =
+  '<!doctype html><html><body style="margin: 0">' +
+  '<a href="/one">One</a> ' +
+  '<a href="/two" rel="noopener">Two</a> ' +
+  '<button onclick="location.href = \'/three\'">Three</button>' +
+  '</body></html>';
+
+test('visit all links', { tag: '@ralph' }, async ({ context, page, ralph }) => {
+  await context.route('https://hub.test/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: hubHtml }),
+  );
+  await page.goto('https://hub.test/hub');
+  await ralph.waitForCapture();
+  const visited: string[] = [];
+  await ralph.visitAllLinks(page.getByRole('link'), {
+    onVisit: async (target) => {
+      visited.push(new URL(target.url()).pathname);
+    },
+  });
+  expect(visited).toEqual(['/one', '/two']);
+  // The links are left as the page rendered them.
+  await expect(page.getByRole('link', { name: 'One' })).not.toHaveAttribute(
+    'target',
+  );
+  await expect(page.getByRole('link', { name: 'Two' })).toHaveAttribute(
+    'rel',
+    'noopener',
+  );
+});
+
+test(
+  'visit all links rejects non-links',
+  { tag: '@ralph' },
+  async ({ context, page, ralph }) => {
+    await context.route('https://hub.test/**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: hubHtml }),
+    );
+    await page.goto('https://hub.test/hub');
+    await ralph.waitForCapture();
+    await expect(
+      ralph.visitAllLinks(page.locator('a, button')),
+    ).rejects.toThrow('Not links: <button');
+    expect(context.pages()).toHaveLength(1);
+  },
+);
+
 const signInHtml =
   '<!doctype html><html><body style="margin: 0; height: 900px">' +
   '<label for="email">Email</label><input id="email">' +
