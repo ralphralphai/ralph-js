@@ -2,6 +2,13 @@ import { type EventBatch, gzipBatch } from '@ralphralphai/schema';
 
 import type { SendBatch } from '@/tracker';
 
+/**
+ * The largest body sent uncompressed with `keepalive`. Browsers cap the bodies
+ * of all in-flight `keepalive` requests at 64 KiB in total, so this leaves room
+ * for a periodic flush still in flight.
+ */
+const MAX_PLAIN_KEEPALIVE_BYTES = 48 * 1024;
+
 export type IngestTransportConfig = {
   /** Base URL of the Ralph API, e.g. `https://ingest.example.com`. */
   endpoint: string;
@@ -23,7 +30,11 @@ export const createIngestTransport = ({
   const url = `${endpoint.replace(/\/+$/, '')}/v1/ingest`;
 
   return async (batch: EventBatch, { keepalive }) => {
-    const body = await gzipBatch(batch);
+    // A `keepalive` flush runs as the page is hidden or closed. Compression is
+    // async, and a closing page can be torn down before it finishes, so the
+    // request would never start. Plain JSON lets `fetch` start synchronously.
+    const plain = keepalive ? plainBody(batch) : null;
+    const body = plain ?? (await gzipBatch(batch));
 
     try {
       await fetch(url, {
@@ -32,7 +43,7 @@ export const createIngestTransport = ({
         headers: {
           authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',
-          'content-encoding': 'gzip',
+          ...(plain ? {} : { 'content-encoding': 'gzip' }),
         },
         body: body as BodyInit,
       });
@@ -43,6 +54,12 @@ export const createIngestTransport = ({
       // analytics, and a retry would risk double-counting instead.
     }
   };
+};
+
+/** `null` when the batch is too large to send uncompressed with `keepalive`. */
+const plainBody = (batch: EventBatch): Uint8Array | null => {
+  const body = new TextEncoder().encode(JSON.stringify(batch));
+  return body.byteLength <= MAX_PLAIN_KEEPALIVE_BYTES ? body : null;
 };
 
 /** Serialize a batch the way the transport would, without sending it. */

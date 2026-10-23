@@ -32,7 +32,7 @@
         "summary": "Accept one batch of interaction events.",
         "operationId": "ingest",
         "requestBody": {
-          "description": "Columnar event batch, gzip-compressed. Send `Content-Encoding: gzip`.",
+          "description": "Columnar event batch, gzip-compressed with `Content-Encoding: gzip`, or plain JSON without it.",
           "content": {
             "application/json": {
               "schema": {

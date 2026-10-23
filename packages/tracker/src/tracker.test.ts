@@ -2,7 +2,7 @@ import type { EventBatch, RawEvent } from '@ralphralphai/schema';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TagStore } from '@/tags';
-import { Tracker } from '@/tracker';
+import { MAX_SEND_GAP_MS, Tracker } from '@/tracker';
 
 const URL = 'https://example.com/pricing';
 
@@ -33,6 +33,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 class TestElement {
@@ -70,7 +71,8 @@ describe('session identity', () => {
 
     tracker.trackPageView();
     void tracker.flush({ keepalive: false });
-    tracker.onPageLeave();
+    tracker.trackPageView();
+    tracker.onHide();
 
     expect(sent.map((batch) => batch.referrer)).toEqual([
       'https://search.example/',
@@ -91,7 +93,8 @@ describe('session identity', () => {
       },
     });
 
-    tracker.onPageLeave();
+    tracker.trackPageView();
+    tracker.onHide();
 
     expect(sent[0]!.referrer).toBeUndefined();
   });
@@ -108,9 +111,99 @@ describe('session identity', () => {
       },
     });
 
-    tracker.onPageLeave();
+    tracker.onHide();
 
     expect(sent[0]!.referrer).toBeUndefined();
+  });
+
+  it('continues the stored session within the idle window', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    new Tracker({ sendBatch: vi.fn() });
+
+    now.mockReturnValue(1_000 + 29 * 60 * 1000);
+    const buffer: RawEvent[] = [];
+    new Tracker({ sendBatch: vi.fn() }, buffer);
+
+    expect(buffer).toEqual([]);
+  });
+
+  it('starts a new session on a page load after 30 minutes idle', () => {
+    let next = 0;
+    vi.stubGlobal('crypto', {
+      randomUUID: () => {
+        return `00000000-0000-4000-8000-00000000000${next++}`;
+      },
+    });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const sent: EventBatch[] = [];
+    const sendBatch = (batch: EventBatch) => {
+      sent.push(batch);
+    };
+    new Tracker({ sendBatch }).onHide();
+
+    now.mockReturnValue(1_000 + 31 * 60 * 1000);
+    const tracker = new Tracker({ sendBatch });
+    tracker.onHide();
+
+    expect(sent[1]!.sessionId).not.toBe(sent[0]!.sessionId);
+    expect(sent[1]!.cols.ty).toEqual([6]);
+  });
+
+  it('rotates the session on activity after 30 minutes idle', () => {
+    stubElementGlobal();
+    let next = 0;
+    vi.stubGlobal('crypto', {
+      randomUUID: () => {
+        return `00000000-0000-4000-8000-00000000000${next++}`;
+      },
+    });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const sent: EventBatch[] = [];
+    const tracker = new Tracker({
+      sendBatch: (batch) => {
+        sent.push(batch);
+      },
+    });
+    tracker.trackPageView();
+
+    now.mockReturnValue(1_000 + 31 * 60 * 1000);
+    tracker.trackClick({
+      target: new TestElement(),
+      pageX: 10,
+      pageY: 20,
+    } as unknown as MouseEvent);
+    tracker.onHide();
+
+    expect(sent).toHaveLength(2);
+    expect(sent[0]!.cols.ty).toEqual([6, 5]);
+    expect(sent[1]!.sessionId).not.toBe(sent[0]!.sessionId);
+    expect(sent[1]!.cols.ty).toEqual([6, 4]);
+  });
+
+  it('does not count a stationary page as activity', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const sent: EventBatch[] = [];
+    const tracker = new Tracker({
+      sendBatch: (batch) => {
+        sent.push(batch);
+      },
+    });
+    tracker.trackPageView();
+
+    now.mockReturnValue(1_000 + 20 * 60 * 1000);
+    tracker.trackPageView();
+
+    now.mockReturnValue(1_000 + 31 * 60 * 1000);
+    vi.stubGlobal('window', {
+      innerWidth: 1200,
+      innerHeight: 800,
+      location: { href: URL },
+      scrollX: 0,
+      scrollY: 400,
+    });
+    tracker.trackPageView();
+
+    expect(sent).toHaveLength(1);
   });
 
   it('disables itself when storage is unavailable', () => {
@@ -123,6 +216,47 @@ describe('session identity', () => {
     expect(tracker.enabled).toBe(false);
     tracker.trackPageView();
     expect(buffer).toEqual([]);
+  });
+
+  it.each([
+    { name: 'crypto is missing', crypto: undefined },
+    { name: 'randomUUID is missing', crypto: {} },
+    {
+      name: 'randomUUID throws',
+      crypto: {
+        randomUUID: () => {
+          throw new Error('UUID generation unavailable');
+        },
+      },
+    },
+  ])('disables itself when $name', async ({ crypto }) => {
+    vi.stubGlobal('crypto', crypto);
+    const sendBatch = vi.fn();
+    const buffer: RawEvent[] = [];
+    const tracker = new Tracker({ sendBatch }, buffer);
+
+    expect(tracker.enabled).toBe(false);
+    tracker.start();
+    await tracker.sendToServer();
+    expect(buffer).toEqual([]);
+    expect(sendBatch).not.toHaveBeenCalled();
+  });
+
+  it('disables itself in SSR without storage or crypto', () => {
+    for (const name of [
+      'localStorage',
+      'sessionStorage',
+      'crypto',
+      'window',
+      'document',
+    ]) {
+      vi.stubGlobal(name, undefined);
+    }
+
+    const tracker = new Tracker({ sendBatch: vi.fn() });
+
+    expect(tracker.enabled).toBe(false);
+    expect(tracker.pending).toBe(0);
   });
 });
 
@@ -303,6 +437,17 @@ describe('pointer sampling', () => {
 });
 
 describe('page views', () => {
+  it('does not sample while the tab is hidden', () => {
+    const buffer: RawEvent[] = [];
+    const tracker = new Tracker({ sendBatch: vi.fn() }, buffer);
+    buffer.length = 0;
+
+    vi.stubGlobal('document', { visibilityState: 'hidden' });
+    tracker.trackPageView();
+
+    expect(buffer).toEqual([]);
+  });
+
   it('records raw scroll offsets rather than a derived centre', () => {
     const buffer: RawEvent[] = [];
     const tracker = new Tracker({ sendBatch: vi.fn() }, buffer);
@@ -366,18 +511,65 @@ describe('flushing', () => {
     expect(tracker.pending).toBe(0);
   });
 
-  it('appends SessionEnd and flushes with keepalive on page leave', () => {
+  it('sends SessionStart and the landing page view on start, with keepalive', () => {
     const sent: { batch: EventBatch; keepalive: boolean }[] = [];
     const tracker = new Tracker({
       sendBatch: (batch, { keepalive }) => void sent.push({ batch, keepalive }),
     });
 
-    tracker.onPageLeave();
+    tracker.start();
+    tracker.start();
 
     expect(sent).toHaveLength(1);
     expect(sent[0]!.keepalive).toBe(true);
-    // SessionStart from construction, then SessionEnd.
-    expect(sent[0]!.batch.cols.ty).toEqual([6, 7]);
+    expect(sent[0]!.batch.cols.ty).toEqual([6, 5]);
+  });
+
+  it('sends whatever is buffered on the first offer', async () => {
+    const sent: EventBatch[] = [];
+    const tracker = new Tracker({
+      sendBatch: (batch) => {
+        sent.push(batch);
+      },
+    });
+
+    await tracker.sendToServer();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.cols.ty).toEqual([6]);
+  });
+
+  it('then waits for the threshold or the maximum gap', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const sent: EventBatch[] = [];
+    const tracker = new Tracker({
+      sendBatch: (batch) => {
+        sent.push(batch);
+      },
+    });
+    await tracker.sendToServer();
+
+    tracker.trackPageView();
+    now.mockReturnValue(1_000 + MAX_SEND_GAP_MS - 1);
+    await tracker.sendToServer();
+    expect(sent).toHaveLength(1);
+
+    now.mockReturnValue(1_000 + MAX_SEND_GAP_MS);
+    await tracker.sendToServer();
+    expect(sent).toHaveLength(2);
+  });
+
+  it('flushes with keepalive and records no SessionEnd on hide', () => {
+    const sent: { batch: EventBatch; keepalive: boolean }[] = [];
+    const tracker = new Tracker({
+      sendBatch: (batch, { keepalive }) => void sent.push({ batch, keepalive }),
+    });
+
+    tracker.onHide();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.keepalive).toBe(true);
+    expect(sent[0]!.batch.cols.ty).toEqual([6]);
   });
 
   it('produces a batch the server would accept', () => {
@@ -393,7 +585,7 @@ describe('flushing', () => {
     );
 
     tracker.trackPageView();
-    tracker.onPageLeave();
+    tracker.onHide();
 
     const batch = sent[0]!.batch;
     expect(batch.v).toBe(1);
@@ -506,12 +698,12 @@ describe('tags', () => {
     store.setVisitorTags({ beta: 'on' });
     store.tagPage({ dialog: 'shipping' }, window.location.href);
     tracker.trackPageView();
-    tracker.onPageLeave();
+    tracker.onHide();
 
     expect(sent[0]!.visitorTagSets).toEqual([{}, { beta: 'on' }]);
     expect(sent[0]!.pageTagSets).toEqual([{}, { dialog: 'shipping' }]);
-    expect(sent[0]!.cols.vt).toEqual([0, 1, 0]);
-    expect(sent[0]!.cols.pt).toEqual([0, 1, 0]);
+    expect(sent[0]!.cols.vt).toEqual([0, 1]);
+    expect(sent[0]!.cols.pt).toEqual([0, 1]);
   });
 
   it('exposes the tags in effect to the page, for the Playwright fixture', () => {

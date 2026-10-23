@@ -28,7 +28,7 @@ export const GlobalTracker: React.FC<TrackerConfig> = (config) => {
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        tracker.onPageLeave();
+        tracker.onHide();
       }
     };
 
@@ -36,7 +36,7 @@ export const GlobalTracker: React.FC<TrackerConfig> = (config) => {
     window.addEventListener('pointermove', tracker.trackPointerMove, {
       passive: true,
     });
-    window.addEventListener('pagehide', tracker.onPageLeave);
+    window.addEventListener('pagehide', tracker.onHide);
     window.addEventListener('visibilitychange', onVisibilityChange);
 
     const pageViewInterval = setInterval(
@@ -49,12 +49,14 @@ export const GlobalTracker: React.FC<TrackerConfig> = (config) => {
     );
     const sendInterval = setInterval(tracker.sendToServer, SEND_INTERVAL_MS);
 
+    tracker.start();
+
     return () => {
       document.removeEventListener('click', tracker.trackClick, {
         capture: true,
       });
       window.removeEventListener('pointermove', tracker.trackPointerMove);
-      window.removeEventListener('pagehide', tracker.onPageLeave);
+      window.removeEventListener('pagehide', tracker.onHide);
       window.removeEventListener('visibilitychange', onVisibilityChange);
       clearInterval(pageViewInterval);
       clearInterval(mouseMoveInterval);

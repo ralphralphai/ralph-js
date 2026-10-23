@@ -16,11 +16,37 @@ import { sameTags, type TagStore, tagStore } from '@/tags';
 /** Flush once this many events are buffered. */
 const FLUSH_AT_EVENTS = 100;
 
+/**
+ * Flush at least this often while events are buffered.
+ *
+ * A visit that never fills the buffer would otherwise reach the server only in
+ * the flush on hide, which is the one most likely to be lost.
+ */
+const MAX_SEND_GAP_MS = 60 * 1000;
+
 /** `localStorage` key holding the anonymous, cross-session user id. */
 const USER_ID_KEY = 'ralph.uid';
 
 /** `sessionStorage` key holding the per-tab session id. */
 const SESSION_ID_KEY = 'ralph.sid';
+
+/** `sessionStorage` key holding when the session last saw activity, epoch ms. */
+const LAST_ACTIVITY_KEY = 'ralph.sat';
+
+/**
+ * Inactivity after which the next activity starts a new session.
+ *
+ * Kept equal to the server's `IDLE_GRACE`, which closes a session after the same
+ * quiet period: a shorter value here would split sessions the server still
+ * holds open, a longer one would continue sessions the server already built.
+ */
+const SESSION_IDLE_MS = 30 * 60 * 1000;
+
+/**
+ * Pointer movement reports activity many times a second, and each report
+ * would otherwise be a synchronous storage write.
+ */
+const ACTIVITY_PERSIST_INTERVAL_MS = 1000;
 
 /**
  * Where a batch goes. Injected rather than baked in, so the SDK carries no
@@ -47,25 +73,49 @@ const currentScreenSize = (): ViewportSize => [
 /**
  * Read a stable id from storage, creating one on first use.
  *
- * Returns `null` when storage is unavailable. Safari in Lockdown Mode and
- * private-mode quota errors both throw on access rather than returning null.
+ * Returns `null` when storage or UUID generation is unavailable. Safari in
+ * Lockdown Mode and private-mode quota errors both throw on access rather than
+ * returning null.
  */
 const persistentId = (storage: Storage | undefined, key: string) => {
+  return readItem(storage, key) ?? createId(storage, key);
+};
+
+const createId = (storage: Storage | undefined, key: string) => {
   if (!storage) {
     return null;
   }
 
   try {
-    const existing = storage.getItem(key);
-    if (existing) {
-      return existing;
-    }
-
     const created = crypto.randomUUID();
-    storage.setItem(key, created);
-    return created;
+    return writeItem(storage, key, created) ? created : null;
   } catch {
     return null;
+  }
+};
+
+const readItem = (storage: Storage | undefined, key: string) => {
+  try {
+    return storage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const writeItem = (
+  storage: Storage | undefined,
+  key: string,
+  value: string,
+): boolean => {
+  if (!storage) {
+    return false;
+  }
+
+  try {
+    storage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
   }
 };
 
@@ -93,7 +143,18 @@ export class Tracker {
   private latestPointerPosition: { clientX: number; clientY: number } | null =
     null;
 
-  private readonly identity: BatchIdentity | null;
+  private identity: BatchIdentity | null;
+
+  private readonly sessionStore: Storage | undefined;
+
+  private lastActivityAt: number;
+
+  private persistedActivityAt: number;
+
+  /** `null` until this page load's first batch is sent. */
+  private lastSentAt: number | null = null;
+
+  private started = false;
 
   constructor(
     private readonly config: TrackerConfig,
@@ -105,17 +166,22 @@ export class Tracker {
     // on first load, where neither storage exists. Tracking is client-only, so
     // this no-ops on the server instead of crashing SSR.
     const local = safeStorage(() => localStorage);
-    const session = safeStorage(() => sessionStorage);
+    this.sessionStore = safeStorage(() => sessionStorage);
+
+    const now = Date.now();
+    this.lastActivityAt = now;
+    this.persistedActivityAt = now;
 
     const userId = persistentId(local, USER_ID_KEY);
-    const existingSession = (() => {
-      try {
-        return session?.getItem(SESSION_ID_KEY) ?? null;
-      } catch {
-        return null;
-      }
-    })();
-    const sessionId = persistentId(session, SESSION_ID_KEY);
+    const existingSession = readItem(this.sessionStore, SESSION_ID_KEY);
+
+    const continuing =
+      existingSession !== null &&
+      !isIdleSince(readItem(this.sessionStore, LAST_ACTIVITY_KEY), now);
+
+    const sessionId = continuing
+      ? existingSession
+      : createId(this.sessionStore, SESSION_ID_KEY);
 
     if (!userId || !sessionId) {
       this.identity = null;
@@ -123,7 +189,7 @@ export class Tracker {
     }
 
     // A fresh session id means this is the session's first page.
-    const referrer = existingSession ? undefined : landingReferrer();
+    const referrer = continuing ? undefined : landingReferrer();
 
     this.identity = {
       userId,
@@ -132,8 +198,10 @@ export class Tracker {
       ...(referrer === undefined ? {} : { referrer }),
     };
 
-    if (!existingSession) {
-      this.buffer.push({ ty: 6, at: Date.now() });
+    writeItem(this.sessionStore, LAST_ACTIVITY_KEY, String(now));
+
+    if (!continuing) {
+      this.buffer.push({ ty: 6, at: now });
     }
 
     window.__ralphTags = () => this.tags.at(window.location.href);
@@ -149,10 +217,37 @@ export class Tracker {
     return this.buffer.length;
   }
 
-  sendToServer = async (): Promise<void> => {
-    if (this.buffer.length < FLUSH_AT_EVENTS) {
+  /**
+   * Send `SessionStart` and the landing page view the moment the page mounts.
+   *
+   * `keepalive` makes the transport send plain JSON synchronously, and lets the
+   * request outlive a page closed right after loading, so a visit of any length
+   * registers. Idempotent because StrictMode mounts the tracker twice in dev.
+   */
+  start = (): void => {
+    if (this.started) {
       return;
     }
+
+    this.started = true;
+    this.trackPageView();
+    void this.flush({ keepalive: true });
+  };
+
+  /**
+   * The first offer sends whatever is buffered, so even a visit that ends
+   * seconds later has already registered its session and landing page.
+   */
+  sendToServer = async (): Promise<void> => {
+    const due =
+      this.lastSentAt === null ||
+      this.buffer.length >= FLUSH_AT_EVENTS ||
+      Date.now() - this.lastSentAt >= MAX_SEND_GAP_MS;
+
+    if (!due) {
+      return;
+    }
+
     await this.flush({ keepalive: false });
   };
 
@@ -164,6 +259,7 @@ export class Tracker {
     }
 
     const events = this.buffer.splice(0, this.buffer.length);
+    this.lastSentAt = Date.now();
     await this.config.sendBatch(encodeBatch(identity, events), options);
   };
 
@@ -177,9 +273,11 @@ export class Tracker {
     );
     const trackId = actionable?.getAttribute(BUTTON_TRACK_ID) ?? undefined;
 
+    const at = Date.now();
+    this.markSessionAsActive(at);
+
     const url = window.location.href;
     const tags = this.tagsAt(url);
-    const at = Date.now();
 
     // Emitted back to back with the PageClick below, at the same millisecond and
     // for the same url, which is why `Pressable` carries no url of its own.
@@ -208,7 +306,10 @@ export class Tracker {
   };
 
   trackPageView = (): void => {
-    if (!this.identity) {
+    // Skip while the tab is hidden. The interval keeps firing there, throttled,
+    // so a tab left in the background would grow its run until the tab is
+    // closed, stretching the session's end time by the hidden period.
+    if (!this.identity || document.visibilityState !== 'visible') {
       return;
     }
 
@@ -246,6 +347,7 @@ export class Tracker {
       clientX: event.clientX,
       clientY: event.clientY,
     };
+    this.markSessionAsActive(Date.now());
   };
 
   trackMouseMove = (): void => {
@@ -279,17 +381,7 @@ export class Tracker {
     );
   };
 
-  onPageLeave = (): void => {
-    if (!this.identity) {
-      return;
-    }
-
-    this.buffer.push({ ty: 7, at: Date.now() });
-
-    // `keepalive` caps the body at 64 KB, a real truncation risk on the exact
-    // flush where SessionEnd matters most. A gzipped columnar batch is roughly an
-    // order of magnitude smaller, so a capped flush does not reach that cap in
-    // practice.
+  onHide = (): void => {
     void this.flush({ keepalive: true });
   };
 
@@ -320,7 +412,47 @@ export class Tracker {
       return;
     }
 
+    // A folded sample is the page sitting still, which is not activity:
+    // counting it would keep an idle open tab's session alive forever.
+    this.markSessionAsActive(sample.at);
     this.buffer.push(sample);
+  }
+
+  private markSessionAsActive(at: number): void {
+    const identity = this.identity;
+    if (!identity) {
+      return;
+    }
+
+    // If the session has been idle for too long previously, then rotate the session.
+    if (at - this.lastActivityAt > SESSION_IDLE_MS) {
+      this.rotateSession(identity, at);
+    }
+
+    this.lastActivityAt = at;
+
+    if (at - this.persistedActivityAt >= ACTIVITY_PERSIST_INTERVAL_MS) {
+      writeItem(this.sessionStore, LAST_ACTIVITY_KEY, String(at));
+      this.persistedActivityAt = at;
+    }
+  }
+
+  private rotateSession(previous: BatchIdentity, at: number): void {
+    // `flush` encodes before its first await, so the buffered events still go
+    // out under the session they were recorded in.
+    void this.flush({ keepalive: false });
+
+    // Kept in memory even when storage refuses the write: this page load stays
+    // on the new session either way.
+    const sessionId = crypto.randomUUID();
+    writeItem(this.sessionStore, SESSION_ID_KEY, sessionId);
+
+    this.identity = {
+      userId: previous.userId,
+      sessionId,
+      ...(previous.buildId === undefined ? {} : { buildId: previous.buildId }),
+    };
+    this.buffer.push({ ty: 6, at });
   }
 
   private tagsAt(url: string): {
@@ -347,6 +479,16 @@ export class Tracker {
   }
 }
 
+const isIdleSince = (lastActivityAt: string | null, now: number): boolean => {
+  // A session stored without a timestamp predates idle rotation. Treating it as
+  // active keeps an SDK upgrade from splitting every open session.
+  if (lastActivityAt === null) {
+    return false;
+  }
+
+  return now - Number(lastActivityAt) > SESSION_IDLE_MS;
+};
+
 const landingReferrer = (): string | undefined => {
   const referrer = document.referrer;
   if (referrer === '' || referrer.length > MAX_REFERRER_LENGTH) {
@@ -368,4 +510,4 @@ const relativeTo = (
   };
 };
 
-export { FLUSH_AT_EVENTS, MOUSE_GRID_PX };
+export { FLUSH_AT_EVENTS, MAX_SEND_GAP_MS, MOUSE_GRID_PX };
