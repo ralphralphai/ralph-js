@@ -262,10 +262,22 @@ async function readElement(
     return await page.locator(`aria-ref=${ref}`).evaluate(
       (element, { properties, isImage, dynamicAttribute }) => {
         const computed = getComputedStyle(element);
+        // `getComputedStyle` resolves an `auto` margin to its used length, and
+        // Chromium reports that length inconsistently: the same centered
+        // element, laid out identically, reads `0px` on one load and `40px` on
+        // the next. The typed computed value keeps it `auto`. Firefox has no
+        // `computedStyleMap`.
+        const typed =
+          'computedStyleMap' in element
+            ? element.computedStyleMap()
+            : undefined;
         const style = Object.fromEntries(
           properties.map((property) => [
             property,
-            computed.getPropertyValue(property),
+            property.startsWith('margin-') &&
+            typed?.get(property)?.toString() === 'auto'
+              ? 'auto'
+              : computed.getPropertyValue(property),
           ]),
         );
         // `closest`, because the marked element need not be in the aria

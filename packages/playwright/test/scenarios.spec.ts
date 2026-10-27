@@ -208,14 +208,15 @@ test('explicit recordings', { tag: '@ralph' }, async ({ page, ralph }) => {
 });
 
 // A sidebar parked off the left edge, a padded section with an image, a
-// server-generated card, a tracking-pixel iframe, and a link far below the
-// fold.
+// server-generated card, a tracking-pixel iframe, a centered paragraph, and a
+// link far below the fold.
 const ariaHtml =
   '<!doctype html><html><body style="margin: 0; height: 1400px">' +
   '<nav style="position: fixed; left: -300px; top: 0; width: 240px"><a href="/menu">Menu</a></nav>' +
   '<div style="padding-left: 24px; border: 1px solid rgb(229, 231, 235); border-radius: 8px; text-transform: uppercase"><h1 style="margin: 0; font-size: 32px; line-height: 1.375; letter-spacing: -0.025em">Pricing</h1><img alt="Plans" style="width: 120px; height: 40px" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221%22 height=%221%22/%3E"></div>' +
   '<div data-ralph-dynamic><article><a href="/blog/latest">Latest post</a><p>Posted 3 days ago</p></article></div>' +
   '<iframe title="Tracker" style="width: 1px; height: 1px; border: 0" srcdoc="<button>Pixel</button>"></iframe>' +
+  '<p style="width: 200px; margin: 0 auto">Centered</p>' +
   '<a href="/faq" style="position: absolute; left: 30px; top: 1000px">FAQ</a>' +
   '</body></html>';
 
