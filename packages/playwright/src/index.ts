@@ -169,7 +169,7 @@ export const test: TestType<
           visitAllLinks(links, async () => {}, options),
         pause: () => {},
         resume: () => {},
-        observe: () => {
+        observe: async () => {
           checkOptIn();
         },
       },
@@ -186,7 +186,7 @@ export const test: TestType<
     );
   },
   context: async ({ context, _ralphRecorder }, use) => {
-    _ralphRecorder?.observe(context);
+    await _ralphRecorder?.observe(context);
     try {
       await use(context);
     } finally {

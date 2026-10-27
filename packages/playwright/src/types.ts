@@ -9,6 +9,12 @@ export type RalphOptions = {
   buildId?: string;
   settleMs?: number;
   reduceMotion?: boolean;
+  /**
+   * Install Playwright's clock before navigation and pause it, along with
+   * animations, across each screenshot and snapshot. Defaults to false.
+   * Owns the context's clock; do not combine with manual page.clock control.
+   */
+  freezeDuringCapture?: boolean;
   recordTimeoutMs?: number;
   ready?: (page: Page, signal: AbortSignal) => Promise<void>;
   /**
@@ -101,7 +107,8 @@ export type Ralph = {
   visitAllLinks(links: Locator, options?: VisitAllLinksOptions): Promise<void>;
   pause(): void;
   resume(): void;
-  observe(context: BrowserContext): void;
+  /** With freezeDuringCapture, await this before any scripts run in a custom context. */
+  observe(context: BrowserContext): Promise<void>;
 };
 
 export type TrackedElement = {

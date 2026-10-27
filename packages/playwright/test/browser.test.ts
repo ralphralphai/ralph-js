@@ -698,6 +698,34 @@ it('leaves animations running after a screenshot', () => {
   ).toHaveLength(1);
 });
 
+it.each(['frozen screenshot and snapshot', 'frozen custom context'])(
+  'keeps screenshot geometry and snapshot boxes aligned: %s',
+  async (title) => {
+    const items = recordedNodes(title);
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      expect(item.geometryStable).toBe(true);
+      const moving = item.layout.trackedElements.find(
+        ({ trackId }) => trackId === 'moving',
+      )!;
+      expect(moving).toBeDefined();
+      const entry = merged.snapshots.find(
+        ({ nodeId }) => nodeId === item.nodeId,
+      )!;
+      const snapshot = await readFile(
+        path.join(output, 'artifacts', 'ralph', entry.path),
+        'utf8',
+      );
+      const { trackId: _trackId, ...box } = moving;
+      // Playwright rounds ARIA boxes to CSS pixels; layout retains subpixels.
+      const rounded = Object.fromEntries(
+        Object.entries(box).map(([key, value]) => [key, Math.round(value)]),
+      );
+      expect(snapshot).toContain(`"box":${JSON.stringify(rounded)}`);
+    }
+  },
+);
+
 it('drops paused steps from the graph', () => {
   const items = manifest('paused capture').nodes;
   expect(items.map((item) => item.url)).toEqual([

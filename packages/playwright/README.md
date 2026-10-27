@@ -93,6 +93,31 @@ CSS animations and transitions are frozen for the screenshot. For animations
 driven from JavaScript, set `reduceMotion` if your app honors
 `prefers-reduced-motion`.
 
+To hold timers and animations at the same position across the screenshot,
+tracked-element geometry, and ARIA snapshot, enable:
+
+```ts
+ralphOptions: {
+  freezeDuringCapture: true,
+},
+```
+
+Ralph installs Playwright's clock before the app loads. Time advances normally
+while the page loads and settles, pauses during capture, and resumes afterward,
+including when capture fails or times out. CSS transitions, CSS animations,
+and Web Animations in the page, its frames, and open shadow roots are paused
+at their current positions; animations already paused by the app stay paused.
+
+This option defaults to `false`. The clock replaces the native timer APIs for
+the lifetime of the context, so don't combine it with manual `page.clock` or
+`context.clock` control. Playwright requires a future pause time: Ralph uses
+the page's current time plus 100 ms, which advances the clock and can fire due
+callbacks once before freezing. Time resumes from there without catching up
+through the capture duration. All tabs in a context share the clock, so their
+timers pause together and their captures run one at a time. Network responses,
+workers, and media playback are not frozen, so unrelated updates can still
+change the page.
+
 ### Explicitly, once the page is ready
 
 A capture taken when the URL or the declared conditions change can catch the
@@ -190,11 +215,15 @@ not record the current page.
 
 ```ts
 const context = await browser.newContext();
-ralph.observe(context);
+await ralph.observe(context);
 // ...
 await ralph.waitForCapture();
 await context.close();
 ```
+
+With `freezeDuringCapture`, await `ralph.observe(context)` before creating or
+navigating any pages, so no app scripts schedule native timers first. A context
+with an already navigated page cannot be enrolled with this option enabled.
 
 ### What happened between two nodes
 
@@ -371,6 +400,7 @@ export default defineConfig<RalphFixtures>({
 | `recordTimeoutMs`     | 5000                     | Budget for one recording, including `settleMs` and `ready`. Must exceed `settleMs`.                  |
 | `ready`               |                          | `(page, signal) => Promise<void>`. Waits for your app before an automatic recording. Honor `signal`. |
 | `reduceMotion`        | `false`                  | Emulates `prefers-reduced-motion: reduce` and waits for finite animations before recording.          |
+| `freezeDuringCapture` | `false`                  | Installs Playwright's clock before navigation; pauses timers and animations across each screenshot and snapshot, then resumes. |
 | `strictNodeTags`      | `false`                  | Fails the test when the app reports a tag outside what `ralph.setNodeConditions` declared.           |
 | `ignoreUntaggedCalls` | `false`                  | Makes `recordNode`, `setNodeConditions`, and `observe` no-ops in untagged tests instead of throwing. |
 

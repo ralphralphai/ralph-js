@@ -15,8 +15,9 @@ The package records **raw nodes**. The server builds the graph.
   the config snapshot, merges raw nodes into graph nodes, and turns
   `previousNodeId` links into edges.
 
-Nothing is injected into the page under test. The flow comes only from the order
-of URL changes (plus tab openers). An earlier version used an in-page click
+Capture reads layout and snapshots in the page; `freezeDuringCapture` also
+installs Playwright's clock. The flow comes from the order of URL changes
+(plus tab openers). An earlier version used an in-page click
 listener to label edges with the clicked element. It was dropped: it put code in
 the app under test, and attribution by timing was unreliable.
 
@@ -29,6 +30,7 @@ the app under test, and attribution by timing was unreliable.
 | [`src/reporter.ts`](src/reporter.ts)   | `RalphReporter`: merges every test's raw graph into the run's manifest, writes it, and uploads it once.     |
 | [`src/layout.ts`](src/layout.ts)       | Reads viewport, document size, scroll, device pixel ratio, and `data-track-id` boxes from the page.         |
 | [`src/image.ts`](src/image.ts)         | Full-page screenshot as WebP, clipped to 16383px when the page is larger; reads image dimensions from the headers. |
+| [`src/capture_freezer.ts`](src/capture_freezer.ts) | Optional context-wide clock installation, capture serialization, and temporary timer/animation pause with cleanup. |
 | [`src/aria_snapshot.ts`](src/aria_snapshot.ts) | The aria tree Ralph diffs between deployments: boxes moved to document space, unreachable elements dropped, distinctive styles and image hashes added. |
 | [`src/upload.ts`](src/upload.ts)       | Builds the `.tar.gz` bundle and POSTs it; resolves upload options.                                          |
 | [`src/config.ts`](src/config.ts)       | Resolves the mode; loads and validates `ralph.jsonc` into a `ConfigSnapshot`.                               |
@@ -76,7 +78,7 @@ event, `page.opener()`, fixtures), so identity lookups work.
   recording that finishes under a different generation was overtaken.
 - `sequence`: the next node's position within the tab.
 - `tail`: the last queued recording. Recordings in one tab run one at a time;
-  tabs run in parallel.
+  tabs run in parallel except for frozen capture steps in a shared context.
 - `opener`: a promise that resolves once `info.openerPageId` is filled in from
   `page.opener()`. It is not the opener itself.
 
@@ -91,7 +93,9 @@ requested time, actual and recorded URL, trigger) and chains
 1. Starts a deadline of `recordTimeoutMs`. `wait()` races each step against it.
 2. For automatic (`url-change`) recordings only: waits for `domcontentloaded`,
    then `settleMs`, then the `ready` hook.
-3. Reads the layout, takes the screenshot, and reads the layout again.
+3. Reads the layout, takes the screenshot, reads the layout again, and takes
+   the optional ARIA snapshot. With `freezeDuringCapture`, these steps share
+   one timer/animation pause; cleanup resumes them before files are saved.
 4. Before and after every step, checks the tab hasn't navigated (generation or
    URL changed) or closed.
 5. On success, writes the screenshot and pushes a `captured` node.
@@ -100,6 +104,24 @@ requested time, actual and recorded URL, trigger) and chains
    `reason` `navigated-away` if the tab navigated or closed, otherwise `error`.
    Explicit recordings rethrow. For automatic ones, `finish` fails the test on
    `error` only.
+
+With `freezeDuringCapture`, `observe` installs the clock once and returns its
+setup promise. The context fixture awaits it before exposing the context.
+Custom contexts must `await ralph.observe(context)` before page scripts run;
+enrolling a context with an already navigated page is rejected because existing
+native timers cannot be transferred to Playwright's clock. The option owns the
+clock and is incompatible with manual clock control. Captures queue per context
+because pausing/resuming the clock affects all its tabs. Only the capture steps
+are serialized; settling and readiness run before the pause.
+
+`pauseAt` needs a future absolute time, so captures sample page time and add
+100 ms. This can fire due timers once and does not catch up the time spent on
+earlier captures. Clock and animation mutations are awaited through cleanup,
+even if the deadline expires, to prevent a late pause from outliving its
+`finally`. Queued captures check the deadline before touching the page.
+Animations are paused without seeking their `currentTime`. Capture waits for
+their `ready` promises before reading layout. This wait can be interrupted by
+the deadline: the saved animation handles let cleanup resume them immediately.
 
 ### Linking nodes
 

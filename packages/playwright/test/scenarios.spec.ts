@@ -596,6 +596,92 @@ test.describe('reduced motion', () => {
   });
 });
 
+test.describe('frozen captures', () => {
+  test.use({
+    ralphOptions: async ({ ralphOptions }, use) => {
+      await use({ ...ralphOptions, freezeDuringCapture: true });
+    },
+  });
+
+  const movingHtml = `<!doctype html>
+    <style>
+      body { margin: 0 }
+      button { position: absolute; top: 20px; width: 80px; height: 30px; animation: move 2s linear infinite }
+      @keyframes move { to { transform: translateX(100px) } }
+    </style>
+    <button data-track-id="moving">Moving</button>
+    <script>
+      let ticks = 0;
+      setInterval(() => {
+        document.body.dataset.ticks = String(++ticks);
+        document.querySelector('button').style.left = (20 + ticks % 100) + 'px';
+      }, 10);
+    </script>`;
+
+  test(
+    'frozen screenshot and snapshot',
+    { tag: '@ralph' },
+    async ({ context, page, ralph }) => {
+      await context.route('https://freeze.test/**', (route) =>
+        route.fulfill({ contentType: 'text/html', body: movingHtml }),
+      );
+      await page.goto('https://freeze.test/main');
+      await ralph.waitForCapture();
+      const sibling = await context.newPage();
+      await sibling.goto('https://freeze.test/sibling');
+      await ralph.waitForCapture();
+      await Promise.all([ralph.recordNode(page), ralph.recordNode(sibling)]);
+      const ticks = await page.evaluate(() =>
+        Number(document.body.dataset.ticks),
+      );
+      await expect
+        .poll(() => page.evaluate(() => Number(document.body.dataset.ticks)))
+        .toBeGreaterThan(ticks);
+      expect(
+        await page.evaluate(() => document.getAnimations()[0]!.playState),
+      ).toBe('running');
+    },
+  );
+
+  test(
+    'frozen custom context',
+    { tag: '@ralph' },
+    async ({ browser, ralph }) => {
+      const context = await browser.newContext();
+      try {
+        await ralph.observe(context);
+        const page = await context.newPage();
+        await page.route('https://freeze.test/**', (route) =>
+          route.fulfill({ contentType: 'text/html', body: movingHtml }),
+        );
+        await page.goto('https://freeze.test/custom');
+        await ralph.waitForCapture();
+      } finally {
+        await context.close();
+      }
+    },
+  );
+
+  test('freeze option leaves untagged tests alone', async ({ page }) => {
+    expect(await page.evaluate(() => setTimeout.toString())).toContain(
+      '[native code]',
+    );
+  });
+
+  test.describe('disabled recorder', () => {
+    test.use({ ralphOptions: { mode: 'off', freezeDuringCapture: true } });
+    test(
+      'freeze option leaves off mode alone',
+      { tag: '@ralph' },
+      async ({ page }) => {
+        expect(await page.evaluate(() => setTimeout.toString())).toContain(
+          '[native code]',
+        );
+      },
+    );
+  });
+});
+
 const databaseTest = nativeTest.extend<{ account: string }>({
   // Playwright requires destructuring here to discover fixture dependencies.
   // oxlint-disable-next-line no-empty-pattern

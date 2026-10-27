@@ -17,13 +17,15 @@ export type Screenshot = {
 export async function takeScreenshot(
   page: Page,
   deadline: number,
+  frozen = false,
 ): Promise<Screenshot> {
-  // Finite animations are jumped to their end state and infinite ones paused,
-  // only while the screenshot is taken.
+  // When capture already paused animations, preserve that same position for
+  // the layout and aria snapshot. Otherwise use Playwright's screenshot-only
+  // animation suppression as before.
   const options = {
     fullPage: true,
     scale: 'css',
-    animations: 'disabled',
+    animations: frozen ? 'allow' : 'disabled',
   } as const;
   const webp = await page.screenshot({
     ...options,

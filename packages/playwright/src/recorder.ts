@@ -15,6 +15,7 @@ import packageInfo from '../package.json';
 import { ActionLog } from './actions';
 import { waitForAnimations } from './animations';
 import { captureAriaSnapshot } from './aria_snapshot';
+import { CaptureFreezer } from './capture_freezer';
 import {
   compactConditions,
   declaredConditions,
@@ -131,7 +132,14 @@ export class Recorder implements Ralph {
    * Every context being watched, with its page listener, kept so
    * `stopContext` can remove the exact listener `observe` added.
    */
-  private readonly contexts = new Map<BrowserContext, (page: Page) => void>();
+  private readonly contexts = new Map<
+    BrowserContext,
+    {
+      onPage: (page: Page) => void;
+      ready: Promise<void>;
+      freezer?: CaptureFreezer;
+    }
+  >();
 
   /**
    * Every tab seen in a watched context, including closed ones, so their
@@ -208,26 +216,35 @@ export class Recorder implements Ralph {
   // ---------------------------------------------------------------------------
 
   /** Starts recording URL changes in every current and future tab of `context`. */
-  observe(context: BrowserContext): void {
+  observe(context: BrowserContext): Promise<void> {
     if (this.closed) {
       throw new Error('The Ralph recorder has finished.');
     }
-    if (this.contexts.has(context)) {
-      return;
+
+    const existing = this.contexts.get(context);
+    if (existing) {
+      return existing.ready;
     }
 
+    const freezer = this.options.freezeDuringCapture
+      ? new CaptureFreezer(context)
+      : undefined;
+
+    const ready = freezer?.install() ?? Promise.resolve();
     const onPage = (page: Page) => this.watchPage(page);
-    this.contexts.set(context, onPage);
+    this.contexts.set(context, { onPage, ready, freezer });
     void this.actions.observe(context);
 
     context.on('page', onPage);
     for (const page of context.pages()) {
       onPage(page);
     }
+
+    return ready;
   }
 
   async recordNode(page: Page, options?: RecordNodeOptions): Promise<void> {
-    this.observe(page.context());
+    await this.observe(page.context());
     const state = this.pages.get(page);
     if (!state) {
       throw new Error('Cannot record a closed browser page.');
@@ -244,7 +261,7 @@ export class Recorder implements Ralph {
     page: Page,
     declaration: ConditionsDeclaration,
   ): Promise<() => Promise<void>> {
-    this.observe(page.context());
+    await this.observe(page.context());
     const state = this.pages.get(page);
     if (!state) {
       throw new Error('Cannot tag a closed browser page.');
@@ -286,9 +303,10 @@ export class Recorder implements Ralph {
 
   /** Stops watching `context` and waits for its queued recordings. */
   async stopContext(context: BrowserContext): Promise<void> {
-    const onPage = this.contexts.get(context);
-    if (onPage) {
-      context.off('page', onPage);
+    const observed = this.contexts.get(context);
+    if (observed) {
+      context.off('page', observed.onPage);
+      await observed.ready;
     }
 
     const states = [...this.pages.values()].filter(
@@ -513,6 +531,7 @@ export class Recorder implements Ralph {
 
     try {
       check();
+      await wait(this.contexts.get(page.context())!.ready);
       if (request.trigger !== 'explicit') {
         await this.waitForPageToSettle(page, deadline, check);
       }
@@ -552,24 +571,35 @@ export class Recorder implements Ralph {
         await wait(waitForAnimations(page, (deadline.endsAt - Date.now()) / 2));
       }
 
-      // Geometry is read on both sides of the screenshot to detect layout drift.
-      check();
-      const before = await wait(readLayout(page));
-      check();
-      const image = await wait(takeScreenshot(page, deadline.endsAt));
-      check();
-      const after = await wait(readLayout(page));
-      check();
-      // Optional, so a snapshot that fails or runs out of time leaves the node
-      // recorded without one, rather than losing its screenshot too.
-      const snapshot = await Promise.race([
-        captureAriaSnapshot(page, after).catch(() => undefined),
-        delay(Math.max(0, deadline.endsAt - Date.now()), undefined, {
-          ref: false,
-        }),
-      ]);
-      // The race ends when the deadline does, so only the page is checked:
-      // a spent budget must not discard the screenshot already taken.
+      const freezer = this.contexts.get(page.context())!.freezer;
+      const capture = async () => {
+        // Geometry is read on both sides of the screenshot to detect layout drift.
+        check();
+        const before = await wait(readLayout(page));
+        check();
+        const image = await wait(
+          takeScreenshot(page, deadline.endsAt, !!freezer),
+        );
+        check();
+        const after = await wait(readLayout(page));
+        check();
+        // Optional, so a snapshot that fails or runs out of time leaves the node
+        // recorded without one, rather than losing its screenshot too.
+        const snapshot = await Promise.race([
+          captureAriaSnapshot(page, after).catch(() => undefined),
+          delay(Math.max(0, deadline.endsAt - Date.now()), undefined, {
+            ref: false,
+          }),
+        ]);
+
+        return { before, image, after, snapshot };
+      };
+
+      // Cleanup completes before saving files or starting the next capture.
+      const { before, image, after, snapshot } = freezer
+        ? await freezer.capture(page, deadline.signal, capture)
+        : await capture();
+      // A spent snapshot budget must not discard the screenshot already taken.
       checkPage();
 
       const recorded: RecordedNode = {
