@@ -232,6 +232,61 @@ test('aria snapshots', { tag: '@ralph' }, async ({ context, page, ralph }) => {
   await ralph.recordNode(page);
 });
 
+// Each image is served once and refused with a 429 after that, the way a
+// rate-limited image host refuses a burst. One is reached through a redirect,
+// from a real server because Chromium does not follow a redirect a route
+// fulfills for an image.
+const logoSvg =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="red"/></svg>';
+const imagesHtml =
+  '<!doctype html><html><body style="margin: 0">' +
+  '<img alt="Logo" src="/logo.svg" style="width: 40px; height: 20px">' +
+  '<img alt="Moved" src="/old.svg" style="width: 40px; height: 20px">' +
+  '</body></html>';
+
+test('image hashes', { tag: '@ralph' }, async ({ page, ralph }) => {
+  const served = new Set<string>();
+  const server = createServer((request, response) => {
+    if (request.url === '/page') {
+      response.writeHead(200, { 'content-type': 'text/html' }).end(imagesHtml);
+    } else if (request.url === '/old.svg') {
+      response.writeHead(308, { location: '/new.svg' }).end();
+    } else if (served.has(request.url!)) {
+      response.writeHead(429).end();
+    } else {
+      served.add(request.url!);
+      response
+        .writeHead(200, {
+          'content-type': 'image/svg+xml',
+          'cache-control': 'no-store',
+        })
+        .end(logoSvg);
+    }
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Expected a TCP address.');
+  }
+
+  try {
+    await page.goto('http://127.0.0.1:' + address.port + '/page');
+    await expect(page.getByAltText('Moved')).toHaveJSProperty('complete', true);
+    await ralph.recordNode(page);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+});
+
 // A stand-in for the tracker: the global the fixture reads its tags from.
 const taggedHtml =
   '<!doctype html><html><body style="margin: 0"><script>' +

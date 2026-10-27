@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
-
 import type { Page } from '@playwright/test';
 
+import { loadedImageHash, sha256 } from './image_responses';
 import type { PageLayout } from './types';
 
 // Mirrors the server's limits. A snapshot past them is left out rather than
@@ -327,13 +326,8 @@ async function readElement(
   }
 }
 
-function sha256(data: string | Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
-}
-
 // The bytes are hashed rather than the url, so the same image moved to a new
-// CDN path is not a change. `page.request` shares the page's cookies without
-// being bound by CORS, which a fetch from inside the page would be.
+// CDN path is not a change.
 async function hashImage(
   page: Page,
   image: ImageSource,
@@ -350,17 +344,7 @@ async function hashImage(
     return sha256(image.src);
   }
 
-  try {
-    const response = await page.request.get(image.src);
-    // Only the hash is kept, so the body is not left in the request context.
-    try {
-      return response.ok() ? sha256(await response.body()) : undefined;
-    } finally {
-      await response.dispose();
-    }
-  } catch {
-    return undefined;
-  }
+  return loadedImageHash(page, image.src);
 }
 
 // Fonts and color are inherited, so recording them on every element would

@@ -23,6 +23,7 @@ import {
   nodeKey,
 } from './conditions';
 import { imageExtension, takeScreenshot, type Screenshot } from './image';
+import { watchImageResponses } from './image_responses';
 import { readLayout } from './layout';
 import type {
   RawNode,
@@ -395,6 +396,7 @@ export class Recorder implements Ralph {
       .catch(() => undefined);
 
     page.on('framenavigated', state.onNavigation);
+    watchImageResponses(page);
     this.urlChanged(state);
   }
 

@@ -758,6 +758,27 @@ it('records each node under the conditions the test declared', () => {
   });
 });
 
+it('hashes the images the page loaded, without fetching them again', async () => {
+  const node = recordedNodes('image hashes').at(-1);
+  const entry = merged.snapshots.find(({ nodeId }) => nodeId === node?.nodeId);
+  const hashes: Record<string, string | undefined> = {};
+  JSON.parse(
+    await readFile(
+      path.join(output, 'artifacts', 'ralph', entry!.path),
+      'utf8',
+    ),
+    (_key, value: { role?: string; name?: string; imageHash?: string }) => {
+      if (value?.role === 'img' && value.name !== undefined) {
+        hashes[value.name] = value.imageHash;
+      }
+
+      return value;
+    },
+  );
+  expect(hashes['Logo']).toMatch(/^[0-9a-f]{64}$/);
+  expect(hashes['Moved']).toBe(hashes['Logo']);
+});
+
 it('captures an aria snapshot per node, in document space, whatever the scroll', async () => {
   const [top, scrolled] = recordedNodes('aria snapshots');
   expect(scrolled?.layout.scroll.y).toBe(600);
