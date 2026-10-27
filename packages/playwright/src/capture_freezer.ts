@@ -1,9 +1,20 @@
-import type { BrowserContext, JSHandle, Page } from '@playwright/test';
+import { setTimeout as delay } from 'node:timers/promises';
+
+import type { BrowserContext, Frame, JSHandle, Page } from '@playwright/test';
+
+import {
+  observeAnimations,
+  type AnimationObserver,
+} from './animation_observer';
 
 // pauseAt accepts an absolute future time, not "pause now". Leave room for
 // the command to reach the browser. Use page time so repeated captures do not
 // fast-forward through the wall-clock time spent on earlier captures.
 const PAUSE_LEAD_MS = 100;
+const ANIMATION_QUIET_MS = 150;
+const MAX_ANIMATION_SETTLE_MS = 1500;
+
+type AnimationObservers = Map<Frame, JSHandle<AnimationObserver>>;
 
 /** One owner of the context-wide clock; captures in different tabs queue here. */
 export class CaptureFreezer {
@@ -29,66 +40,24 @@ export class CaptureFreezer {
     page: Page,
     signal: AbortSignal,
     capture: () => Promise<T>,
+    deadline = Date.now() + 5000,
   ): Promise<T> {
     const task = this.tail.then(async () => {
       signal.throwIfAborted();
-      const animations: JSHandle<Animation[]>[] = [];
+      const animations: AnimationObservers = new Map();
       // Do not race these mutations against a timeout: a late pause could
       // otherwise complete after cleanup and leave the context frozen.
       try {
+        await this.settleAnimations(page, animations, signal, deadline);
         await this.pauseClock(page, signal);
         signal.throwIfAborted();
-        for (const frame of page.frames()) {
-          animations.push(
-            await frame.evaluateHandle(() => {
-              const all = new Set<Animation>();
-
-              // Recursively collect all animations in the document and its
-              // shadow roots.
-              const collectAnimations = (root: Document | ShadowRoot) => {
-                root.getAnimations().forEach((animation) => all.add(animation));
-                for (const element of root.querySelectorAll('*')) {
-                  if (element.shadowRoot) {
-                    collectAnimations(element.shadowRoot);
-                  }
-                }
-              };
-
-              collectAnimations(document);
-
-              const paused: Animation[] = [];
-              try {
-                for (const animation of all) {
-                  if (animation.playState !== 'running') {
-                    continue;
-                  }
-
-                  // A finite animation paused midway freezes wherever it
-                  // happened to be, so two captures of the same page differ.
-                  // Its end state is the one stable position, and the one the
-                  // unfrozen screenshot's `animations: 'disabled'` shows.
-                  const endTime = animation.effect?.getComputedTiming().endTime;
-                  if (
-                    animation.playbackRate !== 0 &&
-                    Number.isFinite(endTime)
-                  ) {
-                    animation.finish();
-                    continue;
-                  }
-
-                  animation.pause();
-                  paused.push(animation);
-                }
-                return paused;
-              } catch (error) {
-                paused.forEach((animation) => animation.play());
-                throw error;
-              }
-            }),
-          );
-          signal.throwIfAborted();
+        // Once time is frozen, only pause: finishing here could start new JS
+        // work whose animation frames cannot run until after the screenshot.
+        // Recheck after pause readiness for newly started native animations.
+        for (let pass = 0; pass < 2; pass++) {
+          await this.sampleAnimations(page, animations, signal, false);
+          await this.waitForAnimationsReady(animations, signal);
         }
-        await this.waitForAnimationsReady(animations, signal);
         return await capture();
       } finally {
         try {
@@ -106,8 +75,70 @@ export class CaptureFreezer {
     return task;
   }
 
+  private async settleAnimations(
+    page: Page,
+    animations: AnimationObservers,
+    signal: AbortSignal,
+    deadline: number,
+  ): Promise<void> {
+    const now = Date.now();
+    // Leave at least half the remaining recording budget for capture. DOM
+    // updates from looping JS animations must not consume the whole deadline.
+    const endsAt =
+      now +
+      Math.min(MAX_ANIMATION_SETTLE_MS, Math.max(0, (deadline - now) / 2));
+    let quietSince = now;
+    while (Date.now() < endsAt) {
+      if (await this.sampleAnimations(page, animations, signal, true)) {
+        quietSince = Date.now();
+      }
+      if (Date.now() - quietSince >= ANIMATION_QUIET_MS) {
+        return;
+      }
+      // The clock is still running. This gives completion callbacks, chained
+      // animations and JS/rAF style updates a chance to reach their end state.
+      await delay(Math.max(0, Math.min(50, endsAt - Date.now())), undefined, {
+        signal,
+      }).catch((error: unknown) => {
+        signal.throwIfAborted();
+        throw error;
+      });
+    }
+  }
+
+  private async sampleAnimations(
+    page: Page,
+    animations: AnimationObservers,
+    signal: AbortSignal,
+    finishFinite: boolean,
+  ): Promise<boolean> {
+    let changed = false;
+    for (const frame of page.frames()) {
+      signal.throwIfAborted();
+      try {
+        let handle = animations.get(frame);
+        if (!handle) {
+          handle = await frame.evaluateHandle(observeAnimations);
+          animations.set(frame, handle);
+        }
+        changed =
+          (await handle.evaluate(
+            (state, finish) => state.sample(finish),
+            finishFinite,
+          )) || changed;
+      } catch (error) {
+        // Completion handlers can remove an iframe while it is settling.
+        if (!frame.isDetached()) {
+          throw error;
+        }
+      }
+    }
+    signal.throwIfAborted();
+    return changed;
+  }
+
   private async waitForAnimationsReady(
-    animations: JSHandle<Animation[]>[],
+    animations: AnimationObservers,
     signal: AbortSignal,
   ): Promise<void> {
     signal.throwIfAborted();
@@ -122,11 +153,18 @@ export class CaptureFreezer {
       // This only waits; it cannot perform a late pause after cleanup.
       await Promise.race([
         Promise.all(
-          animations.map((handle) =>
-            handle.evaluate(async (paused) => {
-              await Promise.all(paused.map((animation) => animation.ready));
-            }),
-          ),
+          [...animations].map(async ([frame, handle]) => {
+            if (frame.isDetached()) {
+              return;
+            }
+            try {
+              await handle.evaluate((state) => state.ready());
+            } catch (error) {
+              if (!frame.isDetached()) {
+                throw error;
+              }
+            }
+          }),
         ),
         aborted,
       ]);
@@ -136,19 +174,12 @@ export class CaptureFreezer {
   }
 
   private async resumeAnimations(
-    animations: JSHandle<Animation[]>[],
+    animations: AnimationObservers,
   ): Promise<void> {
     const restored = await Promise.allSettled(
-      animations.map(async (handle) => {
+      [...animations.values()].map(async (handle) => {
         try {
-          await handle.evaluate((paused) => {
-            for (const animation of paused) {
-              // Do not restart an animation the app canceled meanwhile.
-              if (animation.playState === 'paused') {
-                animation.play();
-              }
-            }
-          });
+          await handle.evaluate((state) => state.resume());
         } catch (error) {
           // Navigating or closing destroys these animations with their document.
           // Other failures must not silently leave them paused.

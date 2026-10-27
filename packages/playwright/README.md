@@ -102,11 +102,24 @@ ralphOptions: {
 },
 ```
 
-Ralph installs Playwright's clock before the app loads. Time advances normally
-while the page loads and settles, pauses during capture, and resumes afterward,
-including when capture fails or times out. CSS transitions, CSS animations,
-and Web Animations in the page, its frames, and open shadow roots are paused
-at their current positions; animations already paused by the app stay paused.
+Ralph installs Playwright's clock before the app loads. Before capture it
+finishes running finite CSS transitions, CSS animations, and Web Animations,
+and watches DOM changes in the page, its frames, and open shadow roots. Timers
+and animation frames keep running while it waits for 150 ms without changes,
+so JavaScript-driven animations can finish without adding callbacks or markers
+to your app. Animations started by completion callbacks are checked again.
+
+This extra settling wait is capped at 1.5 seconds, or half the remaining
+`recordTimeoutMs` budget, whichever is smaller. Looping browser animations are
+temporarily paused while settling. Then timers and all remaining browser
+animations pause during capture and resume afterward, including on failure.
+Animations already paused by the app stay paused; finished animations stay
+finished.
+
+The DOM quiet check is a heuristic, not a guarantee that every animation has
+ended. Long-running JavaScript animations can be captured midway when the
+budget expires. Future delayed work and drawing inside canvas or WebGL aren't
+detected by this check.
 
 This option defaults to `false`. The clock replaces the native timer APIs for
 the lifetime of the context, so don't combine it with manual `page.clock` or
@@ -400,7 +413,7 @@ export default defineConfig<RalphFixtures>({
 | `recordTimeoutMs`     | 5000                     | Budget for one recording, including `settleMs` and `ready`. Must exceed `settleMs`.                  |
 | `ready`               |                          | `(page, signal) => Promise<void>`. Waits for your app before an automatic recording. Honor `signal`. |
 | `reduceMotion`        | `false`                  | Emulates `prefers-reduced-motion: reduce` and waits for finite animations before recording.          |
-| `freezeDuringCapture` | `false`                  | Installs Playwright's clock before navigation; pauses timers and animations across each screenshot and snapshot, then resumes. |
+| `freezeDuringCapture` | `false`                  | Finishes finite browser animations, allows JS-driven DOM changes to settle within a bounded wait, then freezes timers and animations across capture. |
 | `strictNodeTags`      | `false`                  | Fails the test when the app reports a tag outside what `ralph.setNodeConditions` declared.           |
 | `ignoreUntaggedCalls` | `false`                  | Makes `recordNode`, `setNodeConditions`, and `observe` no-ops in untagged tests instead of throwing. |
 

@@ -31,6 +31,7 @@ the app under test, and attribution by timing was unreliable.
 | [`src/layout.ts`](src/layout.ts)       | Reads viewport, document size, scroll, device pixel ratio, and `data-track-id` boxes from the page.         |
 | [`src/image.ts`](src/image.ts)         | Full-page screenshot as WebP, clipped to 16383px when the page is larger; reads image dimensions from the headers. |
 | [`src/capture_freezer.ts`](src/capture_freezer.ts) | Optional context-wide clock installation, capture serialization, and temporary timer/animation pause with cleanup. |
+| [`src/animation_observer.ts`](src/animation_observer.ts) | In-page DOM mutation observation and native animation control while settling, with cleanup after capture. |
 | [`src/aria_snapshot.ts`](src/aria_snapshot.ts) | The aria tree Ralph diffs between deployments: boxes moved to document space, unreachable elements dropped, distinctive styles and image hashes added. |
 | [`src/upload.ts`](src/upload.ts)       | Builds the `.tar.gz` bundle and POSTs it; resolves upload options.                                          |
 | [`src/config.ts`](src/config.ts)       | Resolves the mode; loads and validates `ralph.jsonc` into a `ConfigSnapshot`.                               |
@@ -111,17 +112,30 @@ Custom contexts must `await ralph.observe(context)` before page scripts run;
 enrolling a context with an already navigated page is rejected because existing
 native timers cannot be transferred to Playwright's clock. The option owns the
 clock and is incompatible with manual clock control. Captures queue per context
-because pausing/resuming the clock affects all its tabs. Only the capture steps
-are serialized; settling and readiness run before the pause.
+because pausing/resuming the clock affects all its tabs. The animation settling
+and capture steps are serialized; the DOM load, settle delay and readiness hook
+run before joining that queue.
+
+Inside the queue, `animation_observer.ts` observes DOM mutations in each frame
+and open shadow root, finishes finite native animations, and pauses looping
+ones. Sampling every 50 ms catches animations created by completion callbacks.
+The clock keeps running so JS/rAF-driven style changes can finish. Settling ends
+after 150 ms without DOM changes or animation work, bounded by 1.5 seconds and
+half the remaining recording budget. No app callbacks or readiness markers are
+required. DOM quiet is only a heuristic: delayed future work and canvas/WebGL
+updates are not detected, and endless or long JS animations reach the cap.
 
 `pauseAt` needs a future absolute time, so captures sample page time and add
 100 ms. This can fire due timers once and does not catch up the time spent on
 earlier captures. Clock and animation mutations are awaited through cleanup,
 even if the deadline expires, to prevent a late pause from outliving its
 `finally`. Queued captures check the deadline before touching the page.
-Animations are paused without seeking their `currentTime`. Capture waits for
-their `ready` promises before reading layout. This wait can be interrupted by
-the deadline: the saved animation handles let cleanup resume them immediately.
+After pausing the clock, remaining native animations are paused without seeking
+their `currentTime`; finishing them at this point could enqueue JS work that
+cannot run until after capture. Capture waits for their `ready` promises and
+checks again for new native animations before reading layout. This wait can be
+interrupted by the deadline. Cleanup disconnects all mutation observers and
+resumes only the animations the recorder paused, including when settling fails.
 
 ### Linking nodes
 

@@ -170,6 +170,187 @@ it('finishes finite animations instead of pausing them midway', async () => {
   }
 });
 
+it.each(['document', 'shadow', 'iframe'] as const)(
+  'lets JS animation frames finish in the %s without app readiness hooks',
+  async (location) => {
+    const context = await browser.newContext();
+    const freezer = new CaptureFreezer(context);
+    try {
+      await freezer.install();
+      const page = await context.newPage();
+      await page.setContent('<main></main>');
+      if (location === 'iframe') {
+        await context.route('https://animation.test/**', (route) =>
+          route.fulfill({ contentType: 'text/html', body: '<main></main>' }),
+        );
+        const loaded = page.waitForEvent('framenavigated', {
+          predicate: (frame) => frame.url() === 'https://animation.test/',
+        });
+        await page.evaluate(() => {
+          const frame = document.createElement('iframe');
+          frame.src = 'https://animation.test/';
+          document.body.append(frame);
+        });
+        await (await loaded).waitForLoadState();
+      }
+      const frame =
+        location === 'iframe' ? page.frames()[1]! : page.mainFrame();
+      await frame.evaluate((inShadow) => {
+        const root = inShadow
+          ? document.querySelector('main')!.attachShadow({ mode: 'open' })
+          : document.body;
+        const element = document.createElement('div');
+        element.id = 'animated';
+        element.textContent = 'Appearing';
+        element.style.opacity = '0';
+        root.append(element);
+        const started = performance.now();
+        function draw(time: number) {
+          const progress = Math.min(1, (time - started) / 400);
+          element.style.opacity = String(progress);
+          element.style.transform = `translateX(${100 * progress}px)`;
+          if (progress < 1) {
+            requestAnimationFrame(draw);
+          }
+        }
+        requestAnimationFrame(draw);
+      }, location === 'shadow');
+
+      await freezer.capture(page, AbortSignal.timeout(3000), async () => {
+        const style = await frame.locator('#animated').evaluate((element) => ({
+          opacity: getComputedStyle(element).opacity,
+          transform: getComputedStyle(element).transform,
+        }));
+        expect(style).toEqual({
+          opacity: '1',
+          transform: 'matrix(1, 0, 0, 1, 100, 0)',
+        });
+      });
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+it.each(['finished', 'onfinish', 'animationend'] as const)(
+  'finishes native animations started by %s callbacks before capturing',
+  async (callback) => {
+    const context = await browser.newContext();
+    const freezer = new CaptureFreezer(context);
+    try {
+      await freezer.install();
+      const page = await context.newPage();
+      await page.setContent(`
+        <style>@keyframes fade { from { opacity: 0 } to { opacity: 1 } }</style>
+        <button data-track-id="animated">Moving</button>
+      `);
+      await page.evaluate((callback) => {
+        const element = document.querySelector('button')!;
+        const next = () =>
+          element.animate(
+            [
+              { transform: 'translateX(0px)' },
+              { transform: 'translateX(100px)' },
+            ],
+            { duration: 10_000, fill: 'forwards' },
+          );
+        if (callback === 'animationend') {
+          element.addEventListener('animationend', next, { once: true });
+          element.style.animation = 'fade 10s linear forwards';
+        } else {
+          const animation = element.animate([{ opacity: 0 }, { opacity: 1 }], {
+            duration: 10_000,
+            fill: 'forwards',
+          });
+          if (callback === 'finished') {
+            void animation.finished.then(next);
+          } else {
+            animation.onfinish = next;
+          }
+        }
+      }, callback);
+      await freezer.capture(page, AbortSignal.timeout(3000), async () => {
+        expect(
+          await page
+            .locator('button')
+            .evaluate((element) => getComputedStyle(element).transform),
+        ).toBe('matrix(1, 0, 0, 1, 100, 0)');
+        const before = await readLayout(page);
+        await takeScreenshot(page, Date.now() + 2000, true);
+        expect(await readLayout(page)).toEqual(before);
+      });
+    } finally {
+      await context.close();
+    }
+  },
+);
+
+it('bounds settling for looping JS animations and leaves time for capture', async () => {
+  const { context, freezer, page } = await fixture();
+  try {
+    const started = Date.now();
+    await freezer.capture(
+      page,
+      AbortSignal.timeout(2000),
+      async () => {
+        expect(Date.now() - started).toBeLessThan(1000);
+        const state = await readState(page);
+        await delay(100);
+        expect(await readState(page)).toEqual(state);
+      },
+      started + 1000,
+    );
+    const resumed = await readState(page);
+    await delay(80);
+    expect((await readState(page)).ticks).toBeGreaterThan(resumed.ticks);
+  } finally {
+    await context.close();
+  }
+});
+
+it('allows an iframe to be removed while animations settle', async () => {
+  const context = await browser.newContext();
+  const freezer = new CaptureFreezer(context);
+  try {
+    await freezer.install();
+    const page = await context.newPage();
+    await page.setContent('<iframe srcdoc="<p>Temporary frame</p>"></iframe>');
+    await page.evaluate(() => {
+      setTimeout(() => document.querySelector('iframe')!.remove(), 100);
+    });
+    await freezer.capture(page, AbortSignal.timeout(3000), async () => {
+      expect(page.frames()).toHaveLength(1);
+    });
+  } finally {
+    await context.close();
+  }
+});
+
+it('cleans up paused native animations when settling is aborted', async () => {
+  const { context, freezer, page } = await fixture();
+  const abort = new AbortController();
+  const timer = setTimeout(
+    () => abort.abort(new Error('settling aborted')),
+    100,
+  );
+  try {
+    await expect(
+      freezer.capture(page, abort.signal, async () => {
+        throw new Error('capture should not run');
+      }),
+    ).rejects.toThrow('settling aborted');
+    expect(
+      await page.evaluate(() => document.getAnimations()[0]!.playState),
+    ).toBe('running');
+    const resumed = await readState(page);
+    await delay(80);
+    expect((await readState(page)).ticks).toBeGreaterThan(resumed.ticks);
+  } finally {
+    clearTimeout(timer);
+    await context.close();
+  }
+});
+
 it.each(['error', 'abort', 'navigation', 'close'] as const)(
   'resumes the context after capture %s',
   async (outcome) => {

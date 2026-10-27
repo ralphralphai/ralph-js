@@ -10,8 +10,9 @@ export type RalphOptions = {
   settleMs?: number;
   reduceMotion?: boolean;
   /**
-   * Install Playwright's clock before navigation and pause it, along with
-   * animations, across each screenshot and snapshot. Defaults to false.
+   * Install Playwright's clock before navigation. Before capture, finish finite
+   * browser animations and allow JS-driven DOM changes to settle within a
+   * bounded wait, then pause timers and remaining animations. Defaults to false.
    * Owns the context's clock; do not combine with manual page.clock control.
    */
   freezeDuringCapture?: boolean;

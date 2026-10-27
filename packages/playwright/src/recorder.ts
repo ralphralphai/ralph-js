@@ -565,13 +565,13 @@ export class Recorder implements Ralph {
         );
       }
 
-      if (this.options.reduceMotion) {
+      const freezer = this.contexts.get(page.context())!.freezer;
+      if (this.options.reduceMotion && !freezer) {
         check();
         // Half the remaining budget, so the screenshot still has time.
         await wait(waitForAnimations(page, (deadline.endsAt - Date.now()) / 2));
       }
 
-      const freezer = this.contexts.get(page.context())!.freezer;
       const capture = async () => {
         // Geometry is read on both sides of the screenshot to detect layout drift.
         check();
@@ -597,7 +597,7 @@ export class Recorder implements Ralph {
 
       // Cleanup completes before saving files or starting the next capture.
       const { before, image, after, snapshot } = freezer
-        ? await freezer.capture(page, deadline.signal, capture)
+        ? await freezer.capture(page, deadline.signal, capture, deadline.endsAt)
         : await capture();
       // A spent snapshot budget must not discard the screenshot already taken.
       checkPage();

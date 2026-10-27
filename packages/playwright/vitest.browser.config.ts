@@ -7,6 +7,7 @@ export default defineConfig({
       'test/screens.test.ts',
       'test/image_responses.test.ts',
       'test/capture_freezer.test.ts',
+      'test/aria_snapshot.test.ts',
     ],
     testTimeout: 90_000,
     hookTimeout: 90_000,

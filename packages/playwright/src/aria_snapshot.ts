@@ -73,6 +73,7 @@ type Offset = Pick<Box, 'x' | 'y'>;
 type Style = Record<string, string>;
 type AriaNode = {
   role?: string;
+  name?: string;
   ref?: string;
   box?: Box;
   style?: Style;
@@ -104,7 +105,6 @@ export async function captureAriaSnapshot(
     boxes: true,
     depth: MAX_ARIA_DEPTH,
   })) as AriaNode[];
-
   const placed = await Promise.all(
     snapshot.map((node) => toDocument(page, node, scroll)),
   );
@@ -231,6 +231,24 @@ function keepShown(
   if (!shown && children.length === 0) {
     return undefined;
   }
+
+  // Playwright unwraps a nameless generic with one child, but counts children
+  // before the hidden ones are dropped here. A hidden sibling that comes and
+  // goes, such as the 1px `alert` Next.js mounts in <body> once it hydrates,
+  // would otherwise decide whether everything under the wrapper sits one level
+  // deeper, and the diff then matches none of it across two captures.
+  const [only] = children;
+  if (
+    node.role === 'generic' &&
+    !node.name &&
+    (node.children?.length ?? 0) > 1 &&
+    children.length === 1 &&
+    typeof only !== 'string' &&
+    only?.ref !== undefined
+  ) {
+    return only;
+  }
+
   return node.children === undefined ? node : { ...node, children };
 }
 
