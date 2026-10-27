@@ -784,6 +784,7 @@ it('captures an aria snapshot per node, in document space, whatever the scroll',
   expect(json).toContain('"line-height":"44px"');
   expect(json).toContain('"letter-spacing":"-0.8px"');
   expect(json).toContain('"padding-left":"24px"');
+  expect(json).toContain('"margin-right":"auto","margin-left":"auto"');
   expect(json).not.toContain('"padding-top":"0px"');
   expect(json).toContain(
     '"border-width":"1px","border-color":"rgb(229, 231, 235)","border-radius":"8px"',
