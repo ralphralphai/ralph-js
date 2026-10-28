@@ -36,7 +36,7 @@ it('retains hashes across navigations and updates them when images load again', 
       body: route.request().url().endsWith('/empty') ? '<!doctype html>' : html,
     });
   });
-  watchImageResponses(page);
+  watchImageResponses(page.context());
 
   try {
     await page.goto('https://images.test/first');
@@ -58,6 +58,35 @@ it('retains hashes across navigations and updates them when images load again', 
     expect(await loadedImageHash(page, imageUrl)).toBe(sha256(svg('green')));
   } finally {
     await page.close();
+  }
+});
+
+it('hashes the images a popup loads before Playwright reports the popup', async () => {
+  const page = await browser.newPage();
+  // On the context, because a page's routes do not cover its popups.
+  await page.context().route('https://images.test/**', (route) => {
+    if (route.request().url() === imageUrl) {
+      return route.fulfill({ contentType: 'image/svg+xml', body: svg('red') });
+    }
+    return route.fulfill({
+      contentType: 'text/html',
+      body: route.request().url().endsWith('/opener')
+        ? '<!doctype html><a href="/first" target="_blank" rel="opener">Open</a>'
+        : html,
+    });
+  });
+  watchImageResponses(page.context());
+
+  try {
+    await page.goto('https://images.test/opener');
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.getByText('Open').click(),
+    ]);
+    await popup.waitForLoadState('load');
+    expect(await loadedImageHash(popup, imageUrl)).toBe(sha256(svg('red')));
+  } finally {
+    await page.context().close();
   }
 });
 
@@ -90,7 +119,7 @@ it.each(['204', 'download', 'abort'] as const)(
       }
       return route.fulfill({ contentType: 'text/html', body: html });
     });
-    watchImageResponses(page);
+    watchImageResponses(page.context());
 
     try {
       await page.goto('https://images.test/first');
@@ -126,7 +155,7 @@ it.each(['http', 'network'] as const)(
       }
       return route.fulfill({ contentType: 'image/svg+xml', body: svg('red') });
     });
-    watchImageResponses(page);
+    watchImageResponses(page.context());
 
     try {
       await page.goto('https://images.test/first');
@@ -145,6 +174,59 @@ it.each(['http', 'network'] as const)(
     }
   },
 );
+
+// Playwright turns the HTTP cache off while a route is set, so revalidation
+// needs a real server.
+it('keeps the cached hash when a reload revalidates the image with a 304', async () => {
+  const server = createServer((request, response) => {
+    if (request.url !== '/logo.svg') {
+      response.writeHead(200, { 'content-type': 'text/html' }).end(html);
+      return;
+    }
+
+    if (request.headers['if-none-match'] === '"v1"') {
+      response.writeHead(304, { etag: '"v1"' }).end();
+      return;
+    }
+
+    response
+      .writeHead(200, {
+        'content-type': 'image/svg+xml',
+        'cache-control': 'no-cache',
+        etag: '"v1"',
+      })
+      .end(svg('red'));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Expected a TCP address.');
+  }
+  const origin = 'http://127.0.0.1:' + address.port;
+  const page = await browser.newPage();
+  watchImageResponses(page.context());
+
+  try {
+    await page.goto(origin + '/first');
+    expect(await loadedImageHash(page, origin + '/logo.svg')).toBe(
+      sha256(svg('red')),
+    );
+
+    const revalidated = page.waitForResponse((response) => {
+      return response.url().endsWith('/logo.svg') && response.status() === 304;
+    });
+    await page.reload();
+    await revalidated;
+    expect(await loadedImageHash(page, origin + '/logo.svg')).toBe(
+      sha256(svg('red')),
+    );
+  } finally {
+    await page.close();
+    server.closeAllConnections();
+    server.close();
+  }
+});
 
 // A route fulfills the whole body at once, so a real server holds the image
 // open after its headers.
@@ -167,7 +249,7 @@ it('gives up on an image that never finishes loading', async () => {
   }
   const origin = 'http://127.0.0.1:' + address.port;
   const page = await browser.newPage();
-  watchImageResponses(page);
+  watchImageResponses(page.context());
 
   try {
     await page.goto(origin + '/page', { waitUntil: 'domcontentloaded' });

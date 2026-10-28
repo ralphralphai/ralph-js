@@ -234,6 +234,7 @@ export class Recorder implements Ralph {
     const onPage = (page: Page) => this.watchPage(page);
     this.contexts.set(context, { onPage, ready, freezer });
     void this.actions.observe(context);
+    watchImageResponses(context);
 
     context.on('page', onPage);
     for (const page of context.pages()) {
@@ -414,7 +415,6 @@ export class Recorder implements Ralph {
       .catch(() => undefined);
 
     page.on('framenavigated', state.onNavigation);
-    watchImageResponses(page);
     this.urlChanged(state);
   }
 
