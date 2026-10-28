@@ -121,6 +121,9 @@ importers:
 
   packages/schema:
     devDependencies:
+      '@playwright/test':
+        specifier: 1.63.0
+        version: 1.63.0
       openapi-typescript:
         specifier: 'catalog:'
         version: 7.13.0(typescript@5.9.2)

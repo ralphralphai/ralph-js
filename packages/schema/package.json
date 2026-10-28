@@ -33,6 +33,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "openapi-typescript": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:ts5",
