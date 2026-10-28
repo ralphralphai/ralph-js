@@ -39,3 +39,55 @@ it('captures the same tree whether or not a hidden sibling has mounted yet', asy
   expect(after.map(({ role }) => role)).toEqual(['main']);
   expect(after).toEqual(before);
 });
+
+type Node = {
+  role?: string;
+  name?: string;
+  text?: string;
+  children?: (Node | string)[];
+};
+
+const namesWithRole = (nodes: (Node | string)[], role: string): string[] => {
+  return nodes.flatMap((node) => {
+    if (typeof node === 'string') {
+      return [];
+    }
+    const own = node.role === role ? [node.name || node.text || ''] : [];
+    return [...own, ...namesWithRole(node.children ?? [], role)];
+  });
+};
+
+it('leaves out the rows a scroll box hides below its fold', async () => {
+  const rows = Array.from({ length: 20 }, (_, index) => {
+    return `<li style="height:20px">Row ${index}</li>`;
+  }).join('');
+  const snapshot = await snapshotOf(
+    `<body><div style="height:60px;overflow:auto"><ul style="margin:0">${rows}</ul></div></body>`,
+  );
+  expect(namesWithRole(snapshot as Node[], 'listitem')).toEqual([
+    'Row 0',
+    'Row 1',
+    'Row 2',
+  ]);
+});
+
+it('leaves out the slides a carousel hides inside the viewport', async () => {
+  const snapshot = await snapshotOf(
+    `<body><div style="width:200px;overflow:hidden"><div style="display:flex;width:600px">
+      <button style="width:200px;flex:none">One</button>
+      <button style="width:200px;flex:none">Two</button>
+      <button style="width:200px;flex:none">Three</button>
+    </div></div></body>`,
+  );
+  expect(namesWithRole(snapshot as Node[], 'button')).toEqual(['One']);
+});
+
+it('keeps content past an axis the box does not clip', async () => {
+  const snapshot = await snapshotOf(
+    `<body><div style="height:40px;overflow-x:clip">
+      <button style="display:block;height:30px">One</button>
+      <button style="display:block;height:30px">Two</button>
+    </div></body>`,
+  );
+  expect(namesWithRole(snapshot as Node[], 'button')).toEqual(['One', 'Two']);
+});

@@ -70,6 +70,7 @@ const MIN_IFRAME_SIZE = 5;
 
 type Box = { x: number; y: number; width: number; height: number };
 type Offset = Pick<Box, 'x' | 'y'>;
+type Edges = { left: number; top: number; right: number; bottom: number };
 type Style = Record<string, string>;
 type AriaNode = {
   role?: string;
@@ -108,8 +109,9 @@ export async function captureAriaSnapshot(
   const placed = await Promise.all(
     snapshot.map((node) => toDocument(page, node, scroll)),
   );
+  const clips = await readClips(page, placed);
   const visible = placed.flatMap((node) => {
-    const kept = keepShown(node, viewport.width);
+    const kept = keepShown(node, viewport.width, clips, undefined);
     return kept === undefined ? [] : [kept];
   });
   // Generated refs do not resolve as `aria-ref=` locators, so the elements
@@ -206,11 +208,215 @@ function isShown(node: AriaNode, viewportWidth: number): boolean {
   return node.ref !== undefined && isReachable(node.box, viewportWidth);
 }
 
+function edgesOf(box: Box): Edges {
+  return {
+    left: box.x,
+    top: box.y,
+    right: box.x + box.width,
+    bottom: box.y + box.height,
+  };
+}
+
+function intersect(a: Edges | undefined, b: Edges): Edges {
+  if (a === undefined) {
+    return b;
+  }
+  return {
+    left: Math.max(a.left, b.left),
+    top: Math.max(a.top, b.top),
+    right: Math.min(a.right, b.right),
+    bottom: Math.min(a.bottom, b.bottom),
+  };
+}
+
+// Playwright rounds every box to whole pixels, so two rows that only touch
+// can read as a pixel apart or a pixel overlapping.
+const ROUNDING_SLACK = 1;
+
+function sticksOut(inner: Box, outer: Box): boolean {
+  return (
+    inner.x < outer.x - ROUNDING_SLACK ||
+    inner.y < outer.y - ROUNDING_SLACK ||
+    inner.x + inner.width > outer.x + outer.width + ROUNDING_SLACK ||
+    inner.y + inner.height > outer.y + outer.height + ROUNDING_SLACK
+  );
+}
+
+function overlaps(a: Box, b: Box): boolean {
+  return (
+    Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) >
+      ROUNDING_SLACK &&
+    Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) >
+      ROUNDING_SLACK
+  );
+}
+
+function isOutside(box: Box, clip: Edges): boolean {
+  return (
+    box.x >= clip.right ||
+    box.x + box.width <= clip.left ||
+    box.y >= clip.bottom ||
+    box.y + box.height <= clip.top
+  );
+}
+
+/**
+ * The area each element is clipped to by its ancestors' `overflow`, in
+ * document space, by ref.
+ *
+ * The boxes are not clipped (the rows of a 448px scroll box run thousands of
+ * pixels down the page), and reading an element's ancestors is a page round
+ * trip. Only an element that may overflow one is read: a root, one sticking
+ * out of its parent, or one running into its next sibling. The clipping
+ * ancestor itself is often missing from the tree, since Playwright unwraps a
+ * nameless wrapper with one child. Every other element takes its parent's
+ * clip.
+ */
+async function readClips(
+  page: Page,
+  nodes: AriaNode[],
+): Promise<Map<string, Edges>> {
+  const candidates: { node: AriaNode; frame: Edges | undefined }[] = [];
+  const visit = (
+    node: AriaNode,
+    parent: Box | undefined,
+    next: AriaNode | undefined,
+    frame: Edges | undefined,
+  ) => {
+    if (
+      node.box !== undefined &&
+      (parent === undefined ||
+        sticksOut(node.box, parent) ||
+        (next?.box !== undefined && overlaps(node.box, next.box)))
+    ) {
+      candidates.push({ node, frame });
+    }
+
+    const childFrame =
+      node.role === 'iframe' && node.box !== undefined
+        ? intersect(frame, edgesOf(node.box))
+        : frame;
+    const elements = (node.children ?? []).filter((child) => {
+      return typeof child !== 'string';
+    });
+    elements.forEach((child, index) => {
+      visit(child, node.box, elements[index + 1], childFrame);
+    });
+  };
+  nodes.forEach((node, index) => {
+    visit(node, undefined, nodes[index + 1], undefined);
+  });
+
+  const clips = await Promise.all(
+    candidates.map(async ({ node, frame }): Promise<[string, Edges][]> => {
+      const clip = await readClip(page, node);
+      return clip === undefined || node.ref === undefined
+        ? []
+        : [[node.ref, intersect(frame, clip)]];
+    }),
+  );
+  return new Map(clips.flat());
+}
+
+async function readClip(
+  page: Page,
+  node: AriaNode,
+): Promise<Edges | undefined> {
+  if (node.box === undefined || node.ref === undefined) {
+    return undefined;
+  }
+
+  let read;
+  try {
+    read = await page.locator(`aria-ref=${node.ref}`).evaluate(
+      (element) => {
+        const clip = {
+          left: -Infinity,
+          top: -Infinity,
+          right: Infinity,
+          bottom: Infinity,
+        };
+        let position = getComputedStyle(element).position;
+        // <body> and <html> pass their overflow to the viewport, which the
+        // full-page screenshot does not clip.
+        for (
+          let ancestor = element.parentElement;
+          ancestor !== null &&
+          ancestor !== document.body &&
+          ancestor !== document.documentElement;
+          ancestor = ancestor.parentElement
+        ) {
+          if (position === 'fixed') {
+            break;
+          }
+
+          const style = getComputedStyle(ancestor);
+          // An absolute element escapes every ancestor below its containing
+          // block, overflow included.
+          if (
+            position === 'absolute' &&
+            style.position === 'static' &&
+            style.transform === 'none'
+          ) {
+            continue;
+          }
+
+          position = style.position;
+          const clipsX = style.overflowX !== 'visible';
+          const clipsY = style.overflowY !== 'visible';
+          // `overflow` does not apply to an inline box, whose client size is 0
+          // and would otherwise clip everything inside it.
+          if ((!clipsX && !clipsY) || style.display === 'inline') {
+            continue;
+          }
+
+          // Content is clipped at the padding edge, inside the border and any
+          // scrollbar.
+          const rect = ancestor.getBoundingClientRect();
+          const left = rect.left + ancestor.clientLeft;
+          const top = rect.top + ancestor.clientTop;
+          if (clipsX) {
+            clip.left = Math.max(clip.left, left);
+            clip.right = Math.min(clip.right, left + ancestor.clientWidth);
+          }
+
+          if (clipsY) {
+            clip.top = Math.max(clip.top, top);
+            clip.bottom = Math.min(clip.bottom, top + ancestor.clientHeight);
+          }
+        }
+        const own = element.getBoundingClientRect();
+        return { x: own.x, y: own.y, clip };
+      },
+      undefined,
+      { timeout: ELEMENT_LOOKUP_TIMEOUT_MS },
+    );
+  } catch {
+    return undefined;
+  }
+
+  // The page measures in its frame's viewport. The element's own box gives the
+  // offset from there to document space, so iframes and scroll need no other
+  // correction.
+  const dx = node.box.x - read.x;
+  const dy = node.box.y - read.y;
+  return {
+    left: read.clip.left + dx,
+    top: read.clip.top + dy,
+    right: read.clip.right + dx,
+    bottom: read.clip.bottom + dy,
+  };
+}
+
 // A positioned child can sit on screen while its wrapper's box does not, so a
-// node is kept when it or any descendant is shown.
+// node is kept when it or any descendant is shown. One clipped out entirely
+// is dropped with its descendants without walking them, because the ancestor
+// that clips it clips them too.
 function keepShown(
   node: AriaNode,
   viewportWidth: number,
+  clips: Map<string, Edges>,
+  inherited: Edges | undefined,
 ): AriaNode | undefined {
   if (
     node.role === 'iframe' &&
@@ -220,12 +426,26 @@ function keepShown(
     return undefined;
   }
 
+  const clip =
+    (node.ref === undefined ? undefined : clips.get(node.ref)) ?? inherited;
+  if (
+    clip !== undefined &&
+    node.box !== undefined &&
+    isOutside(node.box, clip)
+  ) {
+    return undefined;
+  }
+
   const shown = isShown(node, viewportWidth);
+  const childClip =
+    node.role === 'iframe' && node.box !== undefined
+      ? intersect(clip, edgesOf(node.box))
+      : clip;
   const children = (node.children ?? []).flatMap((child): AriaChild[] => {
     if (typeof child === 'string') {
       return shown ? [child] : [];
     }
-    const kept = keepShown(child, viewportWidth);
+    const kept = keepShown(child, viewportWidth, clips, childClip);
     return kept === undefined ? [] : [kept];
   });
   if (!shown && children.length === 0) {
