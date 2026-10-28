@@ -586,7 +586,9 @@ export class Recorder implements Ralph {
         // Optional, so a snapshot that fails or runs out of time leaves the node
         // recorded without one, rather than losing its screenshot too.
         const snapshot = await Promise.race([
-          captureAriaSnapshot(page, after).catch(() => undefined),
+          captureAriaSnapshot(page, after, this.options.ignoreInDiff).catch(
+            () => undefined,
+          ),
           delay(Math.max(0, deadline.endsAt - Date.now()), undefined, {
             ref: false,
           }),

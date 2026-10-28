@@ -17,6 +17,11 @@ export type RalphOptions = {
    */
   freezeDuringCapture?: boolean;
   recordTimeoutMs?: number;
+  /**
+   * CSS selectors for subtrees the diff ignores, such as an ad slot or a chat
+   * widget. They are left out of the aria snapshot but stay in the screenshot.
+   */
+  ignoreInDiff?: string[];
   ready?: (page: Page, signal: AbortSignal) => Promise<void>;
   /**
    * Fail the test when the app reports a tag outside the set the test

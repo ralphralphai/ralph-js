@@ -84,7 +84,12 @@ type AriaNode = {
 };
 type AriaChild = AriaNode | string;
 type ImageSource = { src: string } | { markup: string };
-type ElementFacts = { style: Style; dynamic: boolean; image?: ImageSource };
+type ElementFacts = {
+  style: Style;
+  dynamic: boolean;
+  ignored: boolean;
+  image?: ImageSource;
+};
 
 /**
  * The page's aria tree as JSON, with each element's box in document
@@ -98,6 +103,7 @@ type ElementFacts = { style: Style; dynamic: boolean; image?: ImageSource };
 export async function captureAriaSnapshot(
   page: Page,
   { viewport, scroll }: Pick<PageLayout, 'viewport' | 'scroll'>,
+  ignore: string[] = [],
 ): Promise<Buffer | undefined> {
   // The default mode drops unnamed `generic` wrappers, so a div-built page
   // comes out flat. `ai` mode keeps them, which preserves the DOM nesting.
@@ -114,10 +120,22 @@ export async function captureAriaSnapshot(
     const kept = keepShown(node, viewport.width, clips, undefined);
     return kept === undefined ? [] : [kept];
   });
-  // Generated refs do not resolve as `aria-ref=` locators, so the elements
-  // are described while they still carry only Playwright's refs.
+
+  // Normalize before describing: a promoted child must record styles and
+  // dynamic metadata relative to its surviving parent, not a removed wrapper.
+  // Generated refs do not resolve as `aria-ref=` locators, so read elements
+  // while they still carry only Playwright's refs.
+  const ignoreSelector = ignore.length === 0 ? undefined : ignore.join(', ');
+  const facts = new Map<string, ElementFacts>();
+
+  const normalized = (
+    await Promise.all(
+      visible.map((node) => readTree(page, node, ignoreSelector, facts)),
+    )
+  ).filter((node) => node !== undefined);
+
   const described = await Promise.all(
-    visible.map((node) => describe(page, node, {}, false)),
+    normalized.map((node) => describe(page, node, {}, false, facts)),
   );
 
   const json = Buffer.from(JSON.stringify(fillMissingRefs(described)));
@@ -452,11 +470,21 @@ function keepShown(
     return undefined;
   }
 
-  // Playwright unwraps a nameless generic with one child, but counts children
-  // before the hidden ones are dropped here. A hidden sibling that comes and
-  // goes, such as the 1px `alert` Next.js mounts in <body> once it hydrates,
-  // would otherwise decide whether everything under the wrapper sits one level
-  // deeper, and the diff then matches none of it across two captures.
+  return (
+    loneChild(node, children) ??
+    (node.children === undefined ? node : { ...node, children })
+  );
+}
+
+// Playwright unwraps a nameless generic with one child, but counts children
+// before the hidden and ignored ones are dropped here. A hidden sibling that
+// comes and goes, such as the 1px `alert` Next.js mounts in <body> once it
+// hydrates, would otherwise decide whether everything under the wrapper sits
+// one level deeper, and the diff then matches none of it across two captures.
+function loneChild(
+  node: AriaNode,
+  children: AriaChild[],
+): AriaNode | undefined {
   const [only] = children;
   if (
     node.role === 'generic' &&
@@ -468,8 +496,7 @@ function keepShown(
   ) {
     return only;
   }
-
-  return node.children === undefined ? node : { ...node, children };
+  return undefined;
 }
 
 // A wrapper kept only for its shown descendants has no Playwright ref, but
@@ -494,10 +521,11 @@ async function readElement(
   page: Page,
   ref: string,
   isImage: boolean,
+  ignoreSelector: string | undefined,
 ): Promise<ElementFacts | undefined> {
   try {
     return await page.locator(`aria-ref=${ref}`).evaluate(
-      (element, { properties, isImage, dynamicAttribute }) => {
+      (element, { properties, isImage, dynamicAttribute, ignoreSelector }) => {
         const computed = getComputedStyle(element);
         // `getComputedStyle` resolves an `auto` margin to its used length, and
         // Chromium reports that length inconsistently: the same centered
@@ -521,30 +549,49 @@ async function readElement(
         // tree: a plain wrapper `div` around a card often is not.
         const dynamic = element.closest(`[${dynamicAttribute}]`) !== null;
 
+        // Follow rendered ancestry: a light-DOM element may be projected
+        // into an ignored shadow wrapper through a slot.
+        let ignored = false;
+        for (
+          let at: Element | null = element;
+          ignoreSelector !== undefined && at !== null && !ignored;
+        ) {
+          try {
+            ignored = at.matches(ignoreSelector);
+          } catch {
+            // Not a valid selector, so it matches nothing.
+            break;
+          }
+          const root = at.getRootNode();
+          at =
+            at.assignedSlot ??
+            at.parentElement ??
+            (root instanceof ShadowRoot ? root.host : null);
+        }
+        const facts = { style, dynamic, ignored };
+
         if (!isImage) {
-          return { style, dynamic };
+          return facts;
         }
 
         if (element instanceof HTMLImageElement) {
           return {
-            style,
-            dynamic,
+            ...facts,
             image: { src: element.currentSrc || element.src },
           };
         }
 
         if (element instanceof SVGElement) {
-          return { style, dynamic, image: { markup: element.outerHTML } };
+          return { ...facts, image: { markup: element.outerHTML } };
         }
 
         const backgroundUrl = /url\("(.+)"\)/.exec(
           computed.backgroundImage,
         )?.[1];
         return backgroundUrl === undefined
-          ? { style, dynamic }
+          ? facts
           : {
-              style,
-              dynamic,
+              ...facts,
               image: { src: new URL(backgroundUrl, document.baseURI).href },
             };
       },
@@ -556,6 +603,7 @@ async function readElement(
         ],
         isImage,
         dynamicAttribute: DYNAMIC_ATTRIBUTE,
+        ignoreSelector,
       },
       { timeout: ELEMENT_LOOKUP_TIMEOUT_MS },
     );
@@ -611,14 +659,15 @@ function distinctStyle(style: Style, inherited: Style): Style | undefined {
   return distinct.length === 0 ? undefined : Object.fromEntries(distinct);
 }
 
-// `dynamic` is recorded only at the top of a marked subtree, and the diff
-// applies it to everything below, which keeps it off every descendant.
-async function describe(
+// An element `ignoreSelector` matches, or sits inside, is dropped with its
+// descendants, which are never read. Keep each remaining element's facts for
+// describing the normalized tree without another DOM lookup.
+async function readTree(
   page: Page,
   child: AriaChild,
-  inherited: Style,
-  insideDynamic: boolean,
-): Promise<AriaChild> {
+  ignoreSelector: string | undefined,
+  factsByRef: Map<string, ElementFacts>,
+): Promise<AriaChild | undefined> {
   if (typeof child === 'string') {
     return child;
   }
@@ -626,7 +675,67 @@ async function describe(
   const facts =
     child.ref === undefined
       ? undefined
-      : await readElement(page, child.ref, child.role === 'img');
+      : await readElement(
+          page,
+          child.ref,
+          child.role === 'img',
+          ignoreSelector,
+        );
+
+  if (facts?.ignored) {
+    return undefined;
+  }
+  if (child.ref !== undefined && facts !== undefined) {
+    factsByRef.set(child.ref, facts);
+  }
+
+  const children =
+    child.children === undefined
+      ? undefined
+      : (
+          await Promise.all(
+            child.children.map((grandchild) =>
+              readTree(page, grandchild, ignoreSelector, factsByRef),
+            ),
+          )
+        ).filter((grandchild) => grandchild !== undefined);
+
+  if (children !== undefined) {
+    // Playwright omits empty unnamed generics even if their box has size.
+    // A wrapper without a ref is also kept only for what is inside it.
+    if (
+      children.length === 0 &&
+      (child.ref === undefined ||
+        (child.role === 'generic' &&
+          !child.name &&
+          (child.children?.length ?? 0) > 0))
+    ) {
+      return undefined;
+    }
+
+    const only = loneChild(child, children);
+    if (only !== undefined) {
+      return only;
+    }
+  }
+
+  return children === undefined ? child : { ...child, children };
+}
+
+// `dynamic` is recorded only at the top of a marked subtree, and the diff
+// applies it to everything below, which keeps it off every descendant.
+async function describe(
+  page: Page,
+  child: AriaChild,
+  inherited: Style,
+  insideDynamic: boolean,
+  factsByRef: Map<string, ElementFacts>,
+): Promise<AriaChild> {
+  if (typeof child === 'string') {
+    return child;
+  }
+
+  const facts = child.ref === undefined ? undefined : factsByRef.get(child.ref);
   const style =
     facts === undefined ? undefined : distinctStyle(facts.style, inherited);
   const imageHash =
@@ -642,6 +751,7 @@ async function describe(
               grandchild,
               facts?.style ?? inherited,
               insideDynamic || dynamic,
+              factsByRef,
             ),
           ),
         );

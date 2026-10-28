@@ -254,6 +254,24 @@ Pass an `edgeLabel` to describe the step in your own words, e.g.
 `ralph.recordNode(page, { name: 'Done', edgeLabel: 'Sign in' })`. A later call
 without one keeps it.
 
+### Excluding elements from snapshots
+
+For parts of the page that change on their own, such as ads, chat widgets or
+live counters, list CSS selectors in `ignoreInDiff`:
+
+```ts
+ralphOptions: {
+  ignoreInDiff: ['.ad-slot', '#intercom-container', 'live-clock'],
+},
+```
+
+Matched elements and their descendants, including content in open shadow roots
+and slots, are left out of the ARIA snapshot used for diffing. They still appear
+in the screenshot, and the space they take up still moves the elements around
+them. Text that sits inline in a larger element, like a bare `<span>` in a
+paragraph, belongs to that element's text and is not removed. Wrap it in an
+element with a role, or match the whole paragraph.
+
 ### When recording fails
 
 - A failed `recordNode` call rejects.
@@ -414,6 +432,7 @@ export default defineConfig<RalphFixtures>({
 | `ready`               |                          | `(page, signal) => Promise<void>`. Waits for your app before an automatic recording. Honor `signal`. |
 | `reduceMotion`        | `false`                  | Emulates `prefers-reduced-motion: reduce` and waits for finite animations before recording.          |
 | `freezeDuringCapture` | `false`                  | Finishes finite browser animations, allows JS-driven DOM changes to settle within a bounded wait, then freezes timers and animations across capture. |
+| `ignoreInDiff`        |                          | CSS selectors for subtrees to omit from the ARIA snapshot. See [Excluding elements from snapshots](#excluding-elements-from-snapshots). |
 | `strictNodeTags`      | `false`                  | Fails the test when the app reports a tag outside what `ralph.setNodeConditions` declared.           |
 | `ignoreUntaggedCalls` | `false`                  | Makes `recordNode`, `setNodeConditions`, and `observe` no-ops in untagged tests instead of throwing. |
 
