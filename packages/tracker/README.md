@@ -110,8 +110,8 @@ A retry would risk double-counting, which is worse than a gap for aggregate anal
 
 ## Where tracking silently does nothing
 
-The tracker needs `localStorage` and `sessionStorage` for its anonymous user and session
-ids. Where those throw (Safari in Lockdown Mode, some private-mode quota errors) it
+The tracker needs `localStorage` for its anonymous user and session ids. One session is
+shared by every tab and ends after 30 minutes without activity. Where those throw (Safari in Lockdown Mode, some private-mode quota errors) it
 disables itself rather than crashing your app. Server-side rendering is a no-op for the
 same reason.
 

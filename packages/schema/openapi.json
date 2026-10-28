@@ -298,6 +298,14 @@
             "format": "int64",
             "description": "Base epoch ms. Each event's `dt` is milliseconds since the previous\nevent, so absolute timestamps are recovered by a running sum from here."
           },
+          "tabId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Random per page load, so views are counted within the tab that showed\nthem: one session spans every tab, and switching back to a tab is not a\nnew view. Absent from SDKs that predate it."
+          },
           "tracks": {
             "type": "array",
             "items": {

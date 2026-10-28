@@ -51,7 +51,7 @@ describe('session identity', () => {
     new Tracker({ sendBatch: vi.fn() }, first);
     expect(first.map((e) => e.ty)).toEqual([6]);
 
-    // Second construction in the same tab: the session id is already stored.
+    // A second page load or tab: the session id is already stored.
     const second: RawEvent[] = [];
     new Tracker({ sendBatch: vi.fn() }, second);
     expect(second).toEqual([]);
@@ -178,6 +178,100 @@ describe('session identity', () => {
     expect(sent[0]!.cols.ty).toEqual([6, 5]);
     expect(sent[1]!.sessionId).not.toBe(sent[0]!.sessionId);
     expect(sent[1]!.cols.ty).toEqual([6, 4]);
+  });
+
+  it('keeps an idle tab on the session another tab kept active', () => {
+    stubElementGlobal();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const sent: EventBatch[] = [];
+    const sendBatch = (batch: EventBatch) => {
+      sent.push(batch);
+    };
+    const idleTab = new Tracker({ sendBatch });
+    idleTab.trackPageView();
+    idleTab.onHide();
+
+    now.mockReturnValue(1_000 + 20 * 60 * 1000);
+    new Tracker({ sendBatch });
+
+    now.mockReturnValue(1_000 + 31 * 60 * 1000);
+    idleTab.trackClick({
+      target: new TestElement(),
+      pageX: 10,
+      pageY: 20,
+    } as unknown as MouseEvent);
+    idleTab.onHide();
+
+    expect(sent[1]!.sessionId).toBe(sent[0]!.sessionId);
+    expect(sent[1]!.cols.ty).toEqual([4]);
+  });
+
+  it('moves an idle tab onto the session another tab started', () => {
+    stubElementGlobal();
+    let next = 0;
+    vi.stubGlobal('crypto', {
+      randomUUID: () => {
+        return `00000000-0000-4000-8000-00000000000${next++}`;
+      },
+    });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const sent: EventBatch[] = [];
+    const sendBatch = (batch: EventBatch) => {
+      sent.push(batch);
+    };
+    const idleTab = new Tracker({ sendBatch });
+    idleTab.trackPageView();
+    idleTab.onHide();
+
+    now.mockReturnValue(1_000 + 40 * 60 * 1000);
+    new Tracker({ sendBatch }).onHide();
+
+    now.mockReturnValue(1_000 + 41 * 60 * 1000);
+    idleTab.trackClick({
+      target: new TestElement(),
+      pageX: 10,
+      pageY: 20,
+    } as unknown as MouseEvent);
+    idleTab.onHide();
+
+    expect(sent[1]!.sessionId).not.toBe(sent[0]!.sessionId);
+    expect(sent[2]!.sessionId).toBe(sent[1]!.sessionId);
+    expect(sent[2]!.cols.ty).toEqual([4]);
+  });
+
+  it('sends one tab id per page load, kept across session rotation', () => {
+    stubElementGlobal();
+    let next = 0;
+    vi.stubGlobal('crypto', {
+      randomUUID: () => {
+        return `00000000-0000-4000-8000-00000000000${next++}`;
+      },
+    });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const sent: EventBatch[] = [];
+    const sendBatch = (batch: EventBatch) => {
+      sent.push(batch);
+    };
+    const firstTab = new Tracker({ sendBatch });
+    firstTab.trackPageView();
+    firstTab.onHide();
+    const secondTab = new Tracker({ sendBatch });
+    secondTab.trackPageView();
+    secondTab.onHide();
+
+    now.mockReturnValue(1_000 + 31 * 60 * 1000);
+    firstTab.trackClick({
+      target: new TestElement(),
+      pageX: 10,
+      pageY: 20,
+    } as unknown as MouseEvent);
+    firstTab.onHide();
+
+    expect(sent[0]!.tabId).toBeDefined();
+    expect(sent[1]!.tabId).not.toBe(sent[0]!.tabId);
+    expect(sent[1]!.sessionId).toBe(sent[0]!.sessionId);
+    expect(sent[2]!.sessionId).not.toBe(sent[0]!.sessionId);
+    expect(sent[2]!.tabId).toBe(sent[0]!.tabId);
   });
 
   it('does not count a stationary page as activity', () => {

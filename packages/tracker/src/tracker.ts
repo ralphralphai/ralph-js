@@ -27,10 +27,13 @@ const MAX_SEND_GAP_MS = 60 * 1000;
 /** `localStorage` key holding the anonymous, cross-session user id. */
 const USER_ID_KEY = 'ralph.uid';
 
-/** `sessionStorage` key holding the per-tab session id. */
+/**
+ * `localStorage` key holding the session id, shared by every tab so a visitor's
+ * tabs are one session, as GA4 and PostHog count them.
+ */
 const SESSION_ID_KEY = 'ralph.sid';
 
-/** `sessionStorage` key holding when the session last saw activity, epoch ms. */
+/** `localStorage` key holding when the session last saw activity, epoch ms. */
 const LAST_ACTIVITY_KEY = 'ralph.sat';
 
 /**
@@ -79,6 +82,19 @@ const currentScreenSize = (): ViewportSize => [
  */
 const persistentId = (storage: Storage | undefined, key: string) => {
   return readItem(storage, key) ?? createId(storage, key);
+};
+
+/**
+ * Kept in memory rather than in `sessionStorage`, so it is new on every page
+ * load and "Duplicate tab", which copies `sessionStorage`, cannot give two tabs
+ * one id.
+ */
+const newTabId = (): string | undefined => {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return undefined;
+  }
 };
 
 const createId = (storage: Storage | undefined, key: string) => {
@@ -145,7 +161,7 @@ export class Tracker {
 
   private identity: BatchIdentity | null;
 
-  private readonly sessionStore: Storage | undefined;
+  private readonly store: Storage | undefined;
 
   private lastActivityAt: number;
 
@@ -165,23 +181,22 @@ export class Tracker {
     // `GlobalTracker` is a client component, but Next.js still server-renders it
     // on first load, where neither storage exists. Tracking is client-only, so
     // this no-ops on the server instead of crashing SSR.
-    const local = safeStorage(() => localStorage);
-    this.sessionStore = safeStorage(() => sessionStorage);
+    this.store = safeStorage(() => localStorage);
 
     const now = Date.now();
     this.lastActivityAt = now;
     this.persistedActivityAt = now;
 
-    const userId = persistentId(local, USER_ID_KEY);
-    const existingSession = readItem(this.sessionStore, SESSION_ID_KEY);
+    const userId = persistentId(this.store, USER_ID_KEY);
+    const existingSession = readItem(this.store, SESSION_ID_KEY);
 
     const continuing =
       existingSession !== null &&
-      !isIdleSince(readItem(this.sessionStore, LAST_ACTIVITY_KEY), now);
+      !isIdleSince(readItem(this.store, LAST_ACTIVITY_KEY), now);
 
     const sessionId = continuing
       ? existingSession
-      : createId(this.sessionStore, SESSION_ID_KEY);
+      : createId(this.store, SESSION_ID_KEY);
 
     if (!userId || !sessionId) {
       this.identity = null;
@@ -191,14 +206,17 @@ export class Tracker {
     // A fresh session id means this is the session's first page.
     const referrer = continuing ? undefined : landingReferrer();
 
+    const tabId = newTabId();
+
     this.identity = {
       userId,
       sessionId,
+      ...(tabId === undefined ? {} : { tabId }),
       ...(config.buildId === undefined ? {} : { buildId: config.buildId }),
       ...(referrer === undefined ? {} : { referrer }),
     };
 
-    writeItem(this.sessionStore, LAST_ACTIVITY_KEY, String(now));
+    writeItem(this.store, LAST_ACTIVITY_KEY, String(now));
 
     if (!continuing) {
       this.buffer.push({ ty: 6, at: now });
@@ -424,16 +442,41 @@ export class Tracker {
       return;
     }
 
-    // If the session has been idle for too long previously, then rotate the session.
     if (at - this.lastActivityAt > SESSION_IDLE_MS) {
-      this.rotateSession(identity, at);
+      this.resumeSession(identity, at);
     }
 
     this.lastActivityAt = at;
 
     if (at - this.persistedActivityAt >= ACTIVITY_PERSIST_INTERVAL_MS) {
-      writeItem(this.sessionStore, LAST_ACTIVITY_KEY, String(at));
+      writeItem(this.store, LAST_ACTIVITY_KEY, String(at));
       this.persistedActivityAt = at;
+    }
+  }
+
+  /**
+   * This tab was idle, but another tab may have kept the session active or
+   * already rotated it, so the stored session wins while it is still active.
+   */
+  private resumeSession(identity: BatchIdentity, at: number): void {
+    const storedSession = readItem(this.store, SESSION_ID_KEY);
+    const storedIsActive =
+      storedSession !== null &&
+      !isIdleSince(readItem(this.store, LAST_ACTIVITY_KEY), at);
+
+    if (!storedIsActive) {
+      this.rotateSession(identity, at);
+      return;
+    }
+
+    if (storedSession !== identity.sessionId) {
+      void this.flush({ keepalive: false });
+      this.identity = {
+        userId: identity.userId,
+        sessionId: storedSession,
+        ...(identity.tabId === undefined ? {} : { tabId: identity.tabId }),
+        ...(identity.buildId === undefined ? {} : { buildId: identity.buildId }),
+      };
     }
   }
 
@@ -445,11 +488,12 @@ export class Tracker {
     // Kept in memory even when storage refuses the write: this page load stays
     // on the new session either way.
     const sessionId = crypto.randomUUID();
-    writeItem(this.sessionStore, SESSION_ID_KEY, sessionId);
+    writeItem(this.store, SESSION_ID_KEY, sessionId);
 
     this.identity = {
       userId: previous.userId,
       sessionId,
+      ...(previous.tabId === undefined ? {} : { tabId: previous.tabId }),
       ...(previous.buildId === undefined ? {} : { buildId: previous.buildId }),
     };
     this.buffer.push({ ty: 6, at });

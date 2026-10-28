@@ -281,6 +281,7 @@ export type BatchIdentity = {
   /** SDK-generated anonymous UUID. */
   userId: string;
   sessionId: string;
+  tabId?: string;
   buildId?: string;
   referrer?: string;
 };
@@ -314,6 +315,7 @@ export function encodeBatch(
     v: 1,
     userId: identity.userId,
     sessionId: identity.sessionId,
+    ...(identity.tabId === undefined ? {} : { tabId: identity.tabId }),
     ...(identity.buildId === undefined ? {} : { buildId: identity.buildId }),
     ...(identity.referrer === undefined ? {} : { referrer: identity.referrer }),
     t0,
