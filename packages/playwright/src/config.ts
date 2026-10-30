@@ -8,16 +8,23 @@ import { parse, printParseErrorCode, type ParseError } from 'jsonc-parser';
 
 import type { ConfigSnapshot, RalphOptions } from './types';
 
-export function resolveMode(options: RalphOptions): 'off' | 'local' | 'upload' {
+export function resolveMode(
+  options: Pick<RalphOptions, 'mode'>,
+): NonNullable<RalphOptions['mode']> {
   const mode =
     options.mode ??
     process.env['RALPH_MODE'] ??
     (process.env['RALPH_UPLOAD_KEY'] ? 'upload' : 'off');
-  if (mode === 'off' || mode === 'local' || mode === 'upload') {
+  if (
+    mode === 'off' ||
+    mode === 'local' ||
+    mode === 'upload' ||
+    mode === 'deploy'
+  ) {
     return mode;
   }
 
-  throw new Error('RALPH_MODE must be off, local, or upload.');
+  throw new Error('RALPH_MODE must be off, local, upload, or deploy.');
 }
 
 type ConfigSource = Pick<RalphOptions, 'config' | 'configPath'>;

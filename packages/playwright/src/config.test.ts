@@ -72,10 +72,12 @@ describe('recording modes', () => {
     expect(resolveMode({ mode: 'off' })).toBe('off');
   });
 
-  it('selects upload mode and rejects invalid modes', () => {
+  it('selects upload and deploy modes and rejects invalid modes', () => {
     vi.stubEnv('RALPH_MODE', 'upload');
     expect(resolveMode({})).toBe('upload');
+    vi.stubEnv('RALPH_MODE', 'deploy');
+    expect(resolveMode({})).toBe('deploy');
     vi.stubEnv('RALPH_MODE', 'typo');
-    expect(() => resolveMode({})).toThrow('off, local, or upload');
+    expect(() => resolveMode({})).toThrow('off, local, upload, or deploy');
   });
 });

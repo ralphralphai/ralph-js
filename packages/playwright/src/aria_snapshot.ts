@@ -80,6 +80,10 @@ type AriaNode = {
   style?: Style;
   imageHash?: string;
   dynamic?: boolean;
+  // Set when the element could not be read: it has no ref, or the lookup
+  // threw or timed out. Otherwise a missing `style` means the element matches
+  // its snapshot parent, and the diff fills the omitted values in from there.
+  unread?: boolean;
   children?: AriaChild[];
 };
 type AriaChild = AriaNode | string;
@@ -536,6 +540,7 @@ async function readElement(
           'computedStyleMap' in element
             ? element.computedStyleMap()
             : undefined;
+
         const style = Object.fromEntries(
           properties.map((property) => [
             property,
@@ -759,6 +764,7 @@ async function describe(
   return {
     ...child,
     ...(style && { style }),
+    ...(facts === undefined && { unread: true }),
     ...(imageHash && { imageHash }),
     ...(dynamic && { dynamic }),
     ...(children && { children }),

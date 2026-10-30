@@ -32,23 +32,19 @@ import {
 
 export type RalphReporterOptions = {
   /**
-   * `upload` uploads the merged raw graph. Defaults to `RALPH_MODE`, else
-   * `upload` when `RALPH_UPLOAD_KEY` is set. The run is also uploaded when any
-   * test ran in `upload` mode.
+   * `upload` uploads the merged raw graph. `deploy` uploads it as the graph of
+   * the deployed build `RALPH_BUILD_ID` names, rather than as a standalone
+   * result; see `registerDeployment`. Defaults to `RALPH_MODE`, else `upload`
+   * when `RALPH_UPLOAD_KEY` is set. The run is also uploaded when any test ran
+   * in `upload` or `deploy` mode, and as its build's when any ran in `deploy`.
    */
-  mode?: 'off' | 'local' | 'upload';
+  mode?: 'off' | 'local' | 'upload' | 'deploy';
   /** Your Ralph server. Defaults to `RALPH_API_URL`, else `https://api.ralphralph.ai`. */
   apiUrl?: string;
   /** The app the recordings belong to. Defaults to `RALPH_APP_ID`. */
   appId?: string;
   /** How long the upload may take, in milliseconds. Defaults to 120000. */
   uploadTimeoutMs?: number;
-  /**
-   * Upload the run as the graph of the deployed build `RALPH_BUILD_ID` names,
-   * rather than as a standalone result. See `registerDeployment`. Defaults to
-   * `RALPH_DEPLOY` being `1`.
-   */
-  deploy?: boolean;
   /**
    * Where the merged raw graph is written, laid out like the uploaded bundle.
    * Defaults to `ralph` inside the first project's output directory.
@@ -85,7 +81,8 @@ export default class RalphReporter implements Reporter {
   constructor(private readonly options: RalphReporterOptions = {}) {
     // Before any worker starts, so the fixtures can tell the reporter is on.
     process.env[REPORTER_ENV] = '1';
-    if (resolveMode(options) === 'upload') {
+    const mode = resolveMode(options);
+    if (mode === 'upload' || mode === 'deploy') {
       // Throws, so missing credentials stop the run before any test.
       resolveUploadOptions(options);
     }
@@ -129,16 +126,19 @@ export default class RalphReporter implements Reporter {
           }),
         ),
       );
-      const uploading =
-        resolveMode(this.options) === 'upload' ||
-        collected.some(({ file }) => file.mode === 'upload');
+      const modes = new Set([
+        resolveMode(this.options),
+        ...collected.map(({ file }) => file.mode),
+      ]);
+      const deploy = modes.has('deploy');
+      const uploading = deploy || modes.has('upload');
 
       // Before the local copy is written, so it names the same artifact as the
       // upload, and the link is printed as soon as it works.
       let prepared: PreparedUpload | undefined;
       if (uploading) {
         try {
-          prepared = await this.reserve(merged.manifest);
+          prepared = await this.reserve(merged.manifest, deploy);
         } catch (error) {
           const outputDir = await this.write(
             merged.manifest,
@@ -196,9 +196,11 @@ export default class RalphReporter implements Reporter {
     }
   }
 
-  private reserve(manifest: RawGraphManifest): Promise<PreparedUpload> {
+  private reserve(
+    manifest: RawGraphManifest,
+    deploy: boolean,
+  ): Promise<PreparedUpload> {
     const options = resolveUploadOptions(this.options);
-    const deploy = this.options.deploy ?? process.env['RALPH_DEPLOY'] === '1';
     if (!deploy) {
       return prepareArtifactUpload(options);
     }

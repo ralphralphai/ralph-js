@@ -2,7 +2,7 @@ import type { BrowserContext, Locator, Page } from '@playwright/test';
 import type { WebRalphConfig } from '@ralphralphai/config';
 
 export type RalphOptions = {
-  mode?: 'off' | 'local' | 'upload';
+  mode?: 'off' | 'local' | 'upload' | 'deploy';
   config?: WebRalphConfig;
   configPath?: string;
   runId?: string;
@@ -293,8 +293,11 @@ export type RawGraphFile = {
   runId?: string;
   buildId?: string;
   config: ConfigSnapshot;
-  /** The test's mode. The reporter uploads the run if any test's is `upload`. */
-  mode: 'local' | 'upload';
+  /**
+   * The test's mode. The reporter uploads the run if any test's is `upload` or
+   * `deploy`, and uploads it as its build's if any is `deploy`.
+   */
+  mode: 'local' | 'upload' | 'deploy';
   rawGraph: RawGraph;
 };
 

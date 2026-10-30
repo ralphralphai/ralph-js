@@ -107,7 +107,7 @@ export const test: TestType<
       const reported =
         process.env[REPORTER_ENV] ||
         testInfo.config.reporter.some(([name]) => name === 'blob');
-      if (mode === 'upload' && !reported) {
+      if ((mode === 'upload' || mode === 'deploy') && !reported) {
         throw new Error(
           "Ralph uploads one merged graph per run from its reporter. Add ['@ralphralphai/playwright/reporter'] to `reporter` in playwright.config, or use the blob reporter and merge-reports when sharding.",
         );

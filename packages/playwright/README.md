@@ -56,6 +56,15 @@ export default defineConfig({
 RALPH_UPLOAD_KEY=… RALPH_APP_ID=… pnpm exec playwright test
 ```
 
+Then it will give you the URL where you can browse the uploaded Ralph graphs.
+
+**5. (Optional) Mark as a new release**
+
+If you decide to mark the current run as a new release so that Ralph tracker can
+associate the data with the graph you uploaded, set `RALPH_MODE=deploy` and
+specify the build Id `RALPH_BUILD_ID=(build id)`. Normally the build id is the
+commit id of the current release.
+
 ## Tag your elements
 
 Add `data-track-id` to elements, using the same ids as your
@@ -287,8 +296,9 @@ Set with `RALPH_MODE` or the `mode` option:
 | -------- | ------------------------------------------------------------------------------------------------------ |
 | `off`    | Default. Nothing is recorded, and no config or credentials are needed.                                 |
 | `upload` | `@ralph` tests are recorded, and the reporter uploads the run. Default when `RALPH_UPLOAD_KEY` is set. |
+| `deploy` | Like `upload`, but the run will be marked as a new release. See [Deployments](#deployments).           |
 
-Untagged tests are never recorded. In `upload` mode, calling
+Untagged tests are never recorded. In `upload` and `deploy` modes, calling
 `ralph.recordNode`, `ralph.setNodeConditions`, or `ralph.observe` in an
 untagged test throws. Set `ignoreUntaggedCalls` to make them do nothing
 instead, for helpers shared between tagged and untagged tests.
@@ -319,29 +329,16 @@ Ralph: uploading the run. Follow the upload and processing at https://dash.ralph
 Ralph: uploaded the run. Ralph is processing it at https://dash.ralphralph.ai/uploads/0f6c6a2e-…
 ```
 
-### Sharded runs
-
-Use the `blob` reporter on each shard, then merge with the Ralph reporter:
-
-```sh
-# Each shard (no upload credentials needed):
-RALPH_MODE=upload pnpm exec playwright test --shard=1/4 --reporter blob
-
-# Once, after collecting every shard's blob-report/ into all-blob-reports/:
-RALPH_MODE=upload RALPH_UPLOAD_KEY=… RALPH_APP_ID=… \
-  pnpm exec playwright merge-reports --reporter @ralphralphai/playwright/reporter ./all-blob-reports
-```
-
 ### Deployments
 
 When you deploy, upload the run as the graph of the deployed build. Ralph then
 matches tracker events from that build to it.
 
-Set `RALPH_DEPLOY=1` and `RALPH_BUILD_ID` to the build's id, usually the commit
-SHA:
+Set `RALPH_MODE=deploy` and `RALPH_BUILD_ID` to the build's id, usually the
+commit SHA:
 
 ```sh
-RALPH_MODE=upload RALPH_DEPLOY=1 RALPH_BUILD_ID="$COMMIT_SHA" \
+RALPH_MODE=deploy RALPH_BUILD_ID="$COMMIT_SHA" \
   RALPH_UPLOAD_KEY=… RALPH_APP_ID=… pnpm exec playwright test
 ```
 
@@ -358,6 +355,19 @@ curl --fail-with-body -X POST https://api.ralphralph.ai/api/upload/deployment/re
 `ralph.json` here is your `ralph.jsonc` as plain JSON, without comments or
 trailing commas. The test run that follows registers the same build again and
 uploads into it.
+
+### Sharded runs
+
+Use the `blob` reporter on each shard, then merge with the Ralph reporter:
+
+```sh
+# Each shard (no upload credentials needed):
+RALPH_MODE=upload pnpm exec playwright test --shard=1/4 --reporter blob
+
+# Once, after collecting every shard's blob-report/ into all-blob-reports/:
+RALPH_MODE=upload RALPH_UPLOAD_KEY=… RALPH_APP_ID=… \
+  pnpm exec playwright merge-reports --reporter @ralphralphai/playwright/reporter ./all-blob-reports
+```
 
 ## Screen sizes
 
@@ -420,21 +430,21 @@ export default defineConfig<RalphFixtures>({
 });
 ```
 
-| Option                | Default                  | What it does                                                                                         |
-| --------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `mode`                | `RALPH_MODE`, else `off` | `off` or `upload`. See [Modes](#modes).                                                              |
-| `configPath`          | `ralph.jsonc`            | Path to the config, relative to the Playwright config.                                               |
-| `config`              |                          | An inline config instead of a file (type: `WebRalphConfig`).                                         |
-| `buildId`             | `RALPH_BUILD_ID`         | Your app's build, to line up recordings with its analytics.                                          |
-| `runId`               | `RALPH_RUN_ID`           | Identifies the CI run.                                                                               |
-| `settleMs`            | 150                      | Wait after the DOM loads before an automatic recording.                                              |
-| `recordTimeoutMs`     | 5000                     | Budget for one recording, including `settleMs` and `ready`. Must exceed `settleMs`.                  |
-| `ready`               |                          | `(page, signal) => Promise<void>`. Waits for your app before an automatic recording. Honor `signal`. |
-| `reduceMotion`        | `false`                  | Emulates `prefers-reduced-motion: reduce` and waits for finite animations before recording.          |
+| Option                | Default                  | What it does                                                                                                                                         |
+| --------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`                | `RALPH_MODE`, else `off` | `off`, `upload`, or `deploy`. See [Modes](#modes).                                                                                                   |
+| `configPath`          | `ralph.jsonc`            | Path to the config, relative to the Playwright config.                                                                                               |
+| `config`              |                          | An inline config instead of a file (type: `WebRalphConfig`).                                                                                         |
+| `buildId`             | `RALPH_BUILD_ID`         | Your app's build, to line up recordings with its analytics.                                                                                          |
+| `runId`               | `RALPH_RUN_ID`           | Identifies the CI run.                                                                                                                               |
+| `settleMs`            | 150                      | Wait after the DOM loads before an automatic recording.                                                                                              |
+| `recordTimeoutMs`     | 5000                     | Budget for one recording, including `settleMs` and `ready`. Must exceed `settleMs`.                                                                  |
+| `ready`               |                          | `(page, signal) => Promise<void>`. Waits for your app before an automatic recording. Honor `signal`.                                                 |
+| `reduceMotion`        | `false`                  | Emulates `prefers-reduced-motion: reduce` and waits for finite animations before recording.                                                          |
 | `freezeDuringCapture` | `false`                  | Finishes finite browser animations, allows JS-driven DOM changes to settle within a bounded wait, then freezes timers and animations across capture. |
-| `ignoreInDiff`        |                          | CSS selectors for subtrees to omit from the ARIA snapshot. See [Excluding elements from snapshots](#excluding-elements-from-snapshots). |
-| `strictNodeTags`      | `false`                  | Fails the test when the app reports a tag outside what `ralph.setNodeConditions` declared.           |
-| `ignoreUntaggedCalls` | `false`                  | Makes `recordNode`, `setNodeConditions`, and `observe` no-ops in untagged tests instead of throwing. |
+| `ignoreInDiff`        |                          | CSS selectors for subtrees to omit from the ARIA snapshot. See [Excluding elements from snapshots](#excluding-elements-from-snapshots).              |
+| `strictNodeTags`      | `false`                  | Fails the test when the app reports a tag outside what `ralph.setNodeConditions` declared.                                                           |
+| `ignoreUntaggedCalls` | `false`                  | Makes `recordNode`, `setNodeConditions`, and `observe` no-ops in untagged tests instead of throwing.                                                 |
 
 ## Reporter options
 
@@ -442,15 +452,15 @@ export default defineConfig<RalphFixtures>({
 reporter: [['list'], ['@ralphralphai/playwright/reporter', { appId: 'my-app' }]],
 ```
 
-| Option            | Default                                           | What it does                                                     |
-| ----------------- | ------------------------------------------------- | ---------------------------------------------------------------- |
-| `mode`            | `RALPH_MODE`, else `upload` if `RALPH_UPLOAD_KEY` | `upload` uploads the run.                                        |
-| `appId`           | `RALPH_APP_ID`                                    | The app the recordings belong to.                                |
-| `uploadTimeoutMs` | 120000                                            | Upload timeout.                                                  |
-| `deploy`          | `RALPH_DEPLOY` is `1`                             | Uploads the run as its build's. See [Deployments](#deployments). |
-| `outputDir`       | `ralph/` in the first project's output directory  | Where the merged graph is written.                               |
+| Option            | Default                                           | What it does                                                  |
+| ----------------- | ------------------------------------------------- | ------------------------------------------------------------- |
+| `mode`            | `RALPH_MODE`, else `upload` if `RALPH_UPLOAD_KEY` | `upload` uploads the run. `deploy` uploads it as its build's. |
+| `appId`           | `RALPH_APP_ID`                                    | The app the recordings belong to.                             |
+| `uploadTimeoutMs` | 120000                                            | Upload timeout.                                               |
+| `outputDir`       | `ralph/` in the first project's output directory  | Where the merged graph is written.                            |
 
-The run is also uploaded when any test ran in `upload` mode.
+The run is also uploaded when any test ran in `upload` or `deploy` mode, and as
+its build's when any ran in `deploy` mode.
 
 ## Limits
 

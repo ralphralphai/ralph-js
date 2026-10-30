@@ -126,6 +126,35 @@ The edits apply in order. `set` rewrites the value of every param whose key
 matches. `removeOtherQueryParams` drops everything the list did
 not touch when specified.
 
+### Keying a page by an allowlist of its params
+
+When a page's query params say which page it is, list the params that matter
+and drop the rest, rather than removing the ones that don't:
+
+```jsonc
+"urlAnalysisNormalizeRules": [
+  {
+    "matcher": { "path": "/screening" },
+    "transform": {
+      "queryParams": [
+        // Every param except these is dropped, `step` keeping its value.
+        { "remove": { "not": ["step", "plan", "state"] } },
+        { "set": "state", "value": "STATE" }
+      ]
+    }
+  }
+]
+```
+
+A param the app stops sending, or a new one it starts sending, then changes
+no page's key. Old and new URLs of the same page land on the same key, which
+is what lets traffic recorded on older deploys count on a newer deploy's
+graph.
+
+`removeOtherQueryParams` cannot do this on its own: it keeps only params an
+edit touched, and `set` is the only edit that touches a param without
+removing it, by replacing its value.
+
 ### Overriding the host in the graph
 
 When the crawl and the tracker run on different hosts, the graph records a URL

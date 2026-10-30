@@ -46,6 +46,7 @@ type Node = {
   text?: string;
   style?: Record<string, string>;
   dynamic?: boolean;
+  unread?: boolean;
   children?: (Node | string)[];
 };
 
@@ -253,4 +254,26 @@ it('ignores a match whose name changes while it is captured', async () => {
     ['.clock'],
   );
   expect(namesWithRole(snapshot as Node[], 'button')).toEqual(['Keep']);
+});
+
+it('marks an element whose style could not be read, unlike one matching its parent', async () => {
+  const snapshot = await snapshotOf(
+    `<body style="color:red">
+      <button id="broken">Broken</button><button>Plain</button>
+      <script>
+        const read = window.getComputedStyle;
+        window.getComputedStyle = (element, ...rest) => {
+          if (element.id === 'broken') {
+            throw new Error('unreadable');
+          }
+          return read(element, ...rest);
+        };
+      </script>
+    </body>`,
+  );
+  const [broken, plain] = (snapshot[0]?.children ?? []) as Node[];
+  expect(broken).toMatchObject({ name: 'Broken', unread: true });
+  expect(broken?.style).toBeUndefined();
+  expect(plain?.name).toBe('Plain');
+  expect(plain?.unread).toBeUndefined();
 });
