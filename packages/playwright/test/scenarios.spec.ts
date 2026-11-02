@@ -461,6 +461,47 @@ test('retry attempts', { tag: '@ralph' }, async ({ page, ralph }, info) => {
   expect(info.retry).toBe(1);
 });
 
+test('flows', { tag: '@ralph' }, async ({ page, ralph }) => {
+  await page.goto('https://fixture.test/home');
+  await ralph.waitForCapture();
+  ralph.startFlow('Sign up');
+  await page.goto('https://fixture.test/signup');
+  const onboarding = ralph.startFlow('Onboarding');
+  await page.goto('https://fixture.test/welcome');
+  ralph.endFlow('Sign up');
+  await page.goto('https://fixture.test/profile');
+  onboarding.end();
+  await page.goto('https://fixture.test/settings');
+  ralph.startFlow('Billing');
+  await ralph.waitForCapture();
+});
+
+test(
+  'flows across retakes and unchanged conditions',
+  { tag: '@ralph' },
+  async ({ page, ralph }) => {
+    await page.goto('https://fixture.test/home');
+    await ralph.waitForCapture();
+
+    const retakes = ralph.startFlow('Retakes');
+    await ralph.recordNode(page);
+    await ralph.recordNode(page);
+    retakes.end();
+    ralph.startFlow('After retake').end();
+
+    const conditions = { pageTags: { dialog: 'shipping' } };
+    await ralph.setNodeConditions(page, conditions);
+    const unchanged = ralph.startFlow('Unchanged conditions');
+    const undo = await ralph.setNodeConditions(page, conditions);
+    unchanged.end();
+
+    const after = ralph.startFlow('After unchanged conditions');
+    await undo();
+    after.end();
+    ralph.startFlow('After condition removal').end();
+  },
+);
+
 test('ordinary test remains unrecorded', async ({ page }) => {
   await page.goto('https://fixture.test/ordinary');
 });
@@ -484,6 +525,9 @@ test.describe('ignored untagged calls', () => {
     await page.goto('https://fixture.test/ordinary');
     await ralph.setNodeConditions(page, { visitorTags: { plan: 'pro' } });
     await ralph.recordNode(page);
+    const flow = ralph.startFlow('Sign up');
+    flow.end();
+    ralph.endFlow('Sign up');
     ralph.observe(context);
     await ralph.waitForCapture();
   });

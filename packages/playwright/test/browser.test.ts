@@ -746,6 +746,43 @@ it('links across pages used while paused', () => {
   expect(pages).toHaveLength(3);
 });
 
+it('records each flow run with the nodes requested while it was open', () => {
+  const { nodes, flowRuns } = manifest('flows');
+  const pathOf = new Map(
+    nodes.map((item) => [item.nodeId, new URL(item.url).pathname]),
+  );
+  expect(
+    flowRuns?.map((run) => [
+      run.name,
+      run.endedBy,
+      run.nodeIds.map((nodeId) => pathOf.get(nodeId)),
+    ]),
+  ).toEqual([
+    ['Sign up', 'endFlow', ['/home', '/signup', '/welcome']],
+    ['Onboarding', 'endFlow', ['/signup', '/welcome', '/profile']],
+    ['Billing', 'test-end', ['/settings']],
+  ]);
+});
+
+it('leaves flowRuns out of a test that declared none', () => {
+  expect(manifest('paused capture').flowRuns).toBeUndefined();
+});
+
+it('resolves flow entries and starting nodes across retakes and unchanged conditions', () => {
+  const { nodes, flowRuns } = manifest(
+    'flows across retakes and unchanged conditions',
+  );
+  expect(nodes).toHaveLength(2);
+  const [home, shipping] = nodes.map((node) => node.nodeId);
+  expect(flowRuns?.map((run) => [run.name, run.nodeIds])).toEqual([
+    ['Retakes', [home, home, home]],
+    ['After retake', [home]],
+    ['Unchanged conditions', [shipping, shipping]],
+    ['After unchanged conditions', [shipping, shipping]],
+    ['After condition removal', [shipping]],
+  ]);
+});
+
 it('records each node under the conditions the test declared', () => {
   const items = recordedNodes('node conditions');
   const treatment = { experiment: ['treatment'] };

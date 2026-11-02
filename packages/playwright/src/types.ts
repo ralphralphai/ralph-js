@@ -78,6 +78,16 @@ export type RecordNodeOptions = {
   edgeLabel?: string;
 };
 
+/** The run `startFlow` began, so a helper can end what it started. */
+export type FlowRunHandle = {
+  name: string;
+  /**
+   * Ends this run, as `endFlow(name)` would. Throws when the run has already
+   * ended, even if a new run of the same name is open.
+   */
+  end(): void;
+};
+
 export type VisitAllLinksOptions = {
   /**
    * Runs in each opened tab before it closes, e.g. to assert where it landed
@@ -103,6 +113,15 @@ export type Ralph = {
     page: Page,
     conditions: ConditionsDeclaration,
   ): Promise<() => Promise<void>>;
+  /**
+   * Starts a run of the named flow, such as `Sign up`. The node most recently
+   * requested in the test is its first step, and every node requested until
+   * `endFlow` joins it, on every tab. A run still open when the test finishes
+   * ends there. Throws when a run of that name is already open.
+   */
+  startFlow(name: string): FlowRunHandle;
+  /** Ends the open run of the named flow. Throws when none is open. */
+  endFlow(name: string): void;
   waitForCapture(): Promise<void>;
   /**
    * Opens each link `links` matches in its own tab, one at a time, records
@@ -264,6 +283,16 @@ export type RawPage = {
   openerPageId?: string;
 };
 
+/** One start-to-end span of a flow within a test. */
+export type FlowRun = {
+  name: string;
+  startedAt: string;
+  endedAt: string;
+  endedBy: 'endFlow' | 'test-end';
+  /** The nodes requested while the run was open, in request order. */
+  nodeIds: string[];
+};
+
 /** One test's recordings. Its nodes link only to each other. */
 export type RawGraph = {
   id: string;
@@ -279,6 +308,8 @@ export type RawGraph = {
   finishedAt: string;
   pages: RawPage[];
   nodes: RawNode[];
+  /** Absent when the test declared no flow. */
+  flowRuns?: FlowRun[];
   /** The test passed and every node was recorded with stable geometry. */
   complete: boolean;
 };

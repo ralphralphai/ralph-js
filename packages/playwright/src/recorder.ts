@@ -23,6 +23,7 @@ import {
   mismatchesOf,
   nodeKey,
 } from './conditions';
+import { FlowRuns } from './flows';
 import { imageExtension, takeScreenshot, type Screenshot } from './image';
 import { watchImageResponses } from './image_responses';
 import { readLayout } from './layout';
@@ -32,6 +33,8 @@ import type {
   RawGraphFile,
   ConfigSnapshot,
   ConditionsDeclaration,
+  FlowRun,
+  FlowRunHandle,
   NodeConditions,
   RecordedTags,
   RecordNodeOptions,
@@ -177,6 +180,8 @@ export class Recorder implements Ralph {
 
   private readonly requestOrder = new Map<string, number>();
 
+  private readonly flows = new FlowRuns();
+
   private readonly actions = new ActionLog(
     () => ++this.order,
     () => !this.paused && !this.closed,
@@ -279,6 +284,14 @@ export class Recorder implements Ralph {
     };
   }
 
+  startFlow(name: string): FlowRunHandle {
+    return this.flows.start(name, this.lastRequestedNodeId);
+  }
+
+  endFlow(name: string): void {
+    this.flows.end(name);
+  }
+
   /**
    * Stops requesting nodes, automatic or explicit, until `resume`. Recordings
    * already requested still complete. The next node after `resume` links to
@@ -345,7 +358,9 @@ export class Recorder implements Ralph {
     const failures = nodes.filter(
       (item) => item.status === 'uncaptured' && item.reason === 'error',
     );
-    await this.writeRawGraph(this.buildRawGraph(nodes, failures.length));
+    await this.writeRawGraph(
+      this.buildRawGraph(nodes, this.flows.finish(), failures.length),
+    );
 
     const mismatched = nodes.filter((item) => item.tagMismatches?.length);
     if (
@@ -488,6 +503,7 @@ export class Recorder implements Ralph {
     this.requestedAtMs.set(request.nodeId, Date.now());
     this.requestOrder.set(request.nodeId, ++this.order);
     this.lastRequestedNodeId = request.nodeId;
+    this.flows.nodeRequested(request.nodeId);
 
     const generation = state.generation;
     const task = state.tail.then(() =>
@@ -551,6 +567,7 @@ export class Recorder implements Ralph {
         state.lastRecorded?.url === request.url &&
         state.lastRecorded.node === node;
       if (sameNode && request.trigger !== 'explicit') {
+        this.flows.nodeReused(request.nodeId, state.lastRecorded!.nodeId);
         return;
       }
 
@@ -640,6 +657,7 @@ export class Recorder implements Ralph {
           sequence,
           requestedAt,
         };
+        this.flows.nodeReused(request.nodeId, nodeId);
       }
     } catch (error) {
       this.nodes.push({
@@ -766,7 +784,11 @@ export class Recorder implements Ralph {
     return this.pageState(pageId)?.info;
   }
 
-  private buildRawGraph(nodes: RawNode[], failureCount: number): RawGraphFile {
+  private buildRawGraph(
+    nodes: RawNode[],
+    flowRuns: FlowRun[],
+    failureCount: number,
+  ): RawGraphFile {
     const { testInfo } = this;
     const testPassed = testInfo.status === 'passed';
 
@@ -800,6 +822,7 @@ export class Recorder implements Ralph {
         finishedAt: new Date().toISOString(),
         pages: [...this.pages.values()].map((state) => state.info),
         nodes,
+        ...(flowRuns.length ? { flowRuns } : {}),
         complete:
           testPassed &&
           nodes.length > 0 &&

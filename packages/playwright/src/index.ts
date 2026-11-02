@@ -43,6 +43,8 @@ export type {
   ActionKind,
   ActionTarget,
   ConditionsDeclaration,
+  FlowRun,
+  FlowRunHandle,
   NodeConditions,
   RecordedTags,
   RecordNodeOptions,
@@ -164,6 +166,10 @@ export const test: TestType<
           checkOptIn();
           return async () => {};
         },
+        // Flows only label nodes, so a helper shared with untagged tests can
+        // declare them without opting those tests in.
+        startFlow: (name) => ({ name, end: () => {} }),
+        endFlow: () => {},
         waitForCapture: async () => {},
         visitAllLinks: (links, options) =>
           visitAllLinks(links, async () => {}, options),

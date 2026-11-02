@@ -223,6 +223,34 @@ This changes no app state. A declaration that moves the page to a different
 node records it again, and declarations merge until the URL changes. A dialog
 at the same URL is the same node unless you give it a page tag like this.
 
+### Flows
+
+Name the journey a test walks, such as sign-up or onboarding, so the graph can
+show it on its own and Ralph can report its funnel:
+
+```ts
+await page.goto("https://example.com/");
+ralph.startFlow("Sign up"); // the page on screen is the first step
+await page.getByRole("link", { name: "Sign up" }).click();
+await page.getByRole("button", { name: "Continue" }).click();
+ralph.endFlow("Sign up");
+```
+
+Every node recorded while a flow is open joins it, on every tab. A flow still
+open when the test finishes ends there. Flows can overlap, and one page can be
+in several. Tests that walk a flow differently, such as sign-up by email and by
+Google, become separate paths of the same flow.
+
+`startFlow` also returns a handle, so a helper can end what it started:
+
+```ts
+const flow = ralph.startFlow("Onboarding");
+await completeProfile(page);
+flow.end();
+```
+
+In a test without the `@ralph` tag, both calls do nothing.
+
 ### Waiting for capture
 
 To make sure a page is captured before leaving it:
