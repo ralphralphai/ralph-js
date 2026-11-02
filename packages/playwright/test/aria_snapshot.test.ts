@@ -1,5 +1,5 @@
 import { chromium, type Browser } from '@playwright/test';
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 
 import { captureAriaSnapshot } from '../src/aria_snapshot';
 import { readLayout } from '../src/layout';
@@ -254,6 +254,52 @@ it('ignores a match whose name changes while it is captured', async () => {
     ['.clock'],
   );
   expect(namesWithRole(snapshot as Node[], 'button')).toEqual(['Keep']);
+});
+
+it('drops and reports elements the page removes during capture, ignored or not', async () => {
+  const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    await page.setContent(
+      `<body><button>Keep</button>
+        <div class="widget"><button>Launcher</button></div>
+        <button id="gone">Gone</button>
+      </body>`,
+    );
+    // Removes them between the snapshot and the reads after it, the way a chat
+    // widget swaps its launcher for an iframe app mid-capture.
+    const locate = page.locator.bind(page);
+    vi.spyOn(page, 'locator').mockImplementation((selector, options) => {
+      const located = locate(selector, options);
+      if (selector === 'body') {
+        const snapshot = located.ariaSnapshotJSON.bind(located);
+        located.ariaSnapshotJSON = async (snapshotOptions) => {
+          const taken = await snapshot(snapshotOptions);
+          await page.evaluate(() => {
+            document.querySelector('.widget')?.remove();
+            document.querySelector('#gone')?.remove();
+          });
+          return taken;
+        };
+      }
+      return located;
+    });
+
+    const layout = await readLayout(page);
+    const snapshot = JSON.parse(
+      String(await captureAriaSnapshot(page, layout, ['.widget'])),
+    ) as Node[];
+
+    expect(namesWithRole(snapshot, 'button')).toEqual(['Keep']);
+    expect(warn).toHaveBeenCalledOnce();
+    const [message] = warn.mock.calls[0] ?? [];
+    expect(message).toContain('2 element(s) left');
+    expect(message).toContain('button "Launcher"');
+    expect(message).toContain('button "Gone"');
+  } finally {
+    warn.mockRestore();
+    await page.close();
+  }
 });
 
 it('marks an element whose style could not be read, unlike one matching its parent', async () => {

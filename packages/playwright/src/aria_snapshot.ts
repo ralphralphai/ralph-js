@@ -81,7 +81,8 @@ type AriaNode = {
   imageHash?: string;
   dynamic?: boolean;
   // Set when the element could not be read: it has no ref, or the lookup
-  // threw or timed out. Otherwise a missing `style` means the element matches
+  // threw or timed out while the element was still on the page (one removed
+  // during capture is dropped instead). Otherwise a missing `style` means the element matches
   // its snapshot parent, and the diff fills the omitted values in from there.
   unread?: boolean;
   children?: AriaChild[];
@@ -131,12 +132,25 @@ export async function captureAriaSnapshot(
   // while they still carry only Playwright's refs.
   const ignoreSelector = ignore.length === 0 ? undefined : ignore.join(', ');
   const facts = new Map<string, ElementFacts>();
+  const detached: AriaNode[] = [];
 
   const normalized = (
     await Promise.all(
-      visible.map((node) => readTree(page, node, ignoreSelector, facts)),
+      visible.map((node) =>
+        readTree(page, node, ignoreSelector, facts, detached),
+      ),
     )
   ).filter((node) => node !== undefined);
+
+  if (detached.length > 0) {
+    const listed = detached
+      .slice(0, 5)
+      .map(({ role, name }) => (name ? `${role} "${name}"` : role))
+      .join(', ');
+    console.warn(
+      `Ralph: ${detached.length} element(s) left ${page.url()} during capture and were dropped from its aria snapshot: ${listed}${detached.length > 5 ? ', ...' : ''}`,
+    );
+  }
 
   const described = await Promise.all(
     normalized.map((node) => describe(page, node, {}, false, facts)),
@@ -526,9 +540,20 @@ async function readElement(
   ref: string,
   isImage: boolean,
   ignoreSelector: string | undefined,
-): Promise<ElementFacts | undefined> {
+): Promise<ElementFacts | 'detached' | undefined> {
+  // Playwright resolves an aria ref only while its element is connected, so an
+  // element the page removed after the snapshot can neither be read nor be
+  // checked against `ignoreSelector`. Counting first spares it the lookup
+  // timeout.
+  const locator = page.locator(`aria-ref=${ref}`);
+  const isDetached = async () => (await locator.count().catch(() => 0)) === 0;
+
   try {
-    return await page.locator(`aria-ref=${ref}`).evaluate(
+    if (await isDetached()) {
+      return 'detached';
+    }
+
+    return await locator.evaluate(
       (element, { properties, isImage, dynamicAttribute, ignoreSelector }) => {
         const computed = getComputedStyle(element);
         // `getComputedStyle` resolves an `auto` margin to its used length, and
@@ -613,7 +638,7 @@ async function readElement(
       { timeout: ELEMENT_LOOKUP_TIMEOUT_MS },
     );
   } catch {
-    return undefined;
+    return (await isDetached()) ? 'detached' : undefined;
   }
 }
 
@@ -665,13 +690,16 @@ function distinctStyle(style: Style, inherited: Style): Style | undefined {
 }
 
 // An element `ignoreSelector` matches, or sits inside, is dropped with its
-// descendants, which are never read. Keep each remaining element's facts for
+// descendants, which are never read. So is one the page removed since the
+// snapshot, which is collected in `detached`: it is no longer on the page, and
+// whether it was ignored can't be told. Keep each remaining element's facts for
 // describing the normalized tree without another DOM lookup.
 async function readTree(
   page: Page,
   child: AriaChild,
   ignoreSelector: string | undefined,
   factsByRef: Map<string, ElementFacts>,
+  detached: AriaNode[],
 ): Promise<AriaChild | undefined> {
   if (typeof child === 'string') {
     return child;
@@ -687,6 +715,10 @@ async function readTree(
           ignoreSelector,
         );
 
+  if (facts === 'detached') {
+    detached.push(child);
+    return undefined;
+  }
   if (facts?.ignored) {
     return undefined;
   }
@@ -700,7 +732,7 @@ async function readTree(
       : (
           await Promise.all(
             child.children.map((grandchild) =>
-              readTree(page, grandchild, ignoreSelector, factsByRef),
+              readTree(page, grandchild, ignoreSelector, factsByRef, detached),
             ),
           )
         ).filter((grandchild) => grandchild !== undefined);

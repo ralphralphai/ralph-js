@@ -485,6 +485,12 @@ and is not removed. Wrap it in an element with a role, or match the whole
 paragraph. The space ignored elements take up still moves the elements around
 them.
 
+Elements are checked against `ignoreInDiff` after the snapshot is taken. An
+element the page removes in between, like a chat widget swapping its launcher
+for an iframe while the page is captured, is dropped from the snapshot, because
+it is no longer on the page. Each capture that drops one logs
+`Ralph: N element(s) left <url> during capture ...` with the first few.
+
 ### `freezeDuringCapture` in detail
 
 Ralph installs Playwright's clock before the app loads. Before capture it
