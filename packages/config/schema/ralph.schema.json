@@ -44,9 +44,9 @@
     "screenSizes": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/ScreenSize"
+        "$ref": "#/definitions/CaptureScreenSize"
       },
-      "description": "Screen sizes to run the crawl / capture screenshots at."
+      "description": "Screen sizes to run the crawl / capture screenshots at, and the viewport widths whose sessions each is analyzed with."
     }
   },
   "required": [
@@ -528,7 +528,7 @@
       "additionalProperties": false,
       "description": "One version of a page, identified by its query params."
     },
-    "ScreenSize": {
+    "CaptureScreenSize": {
       "type": "object",
       "properties": {
         "width": {
@@ -538,13 +538,35 @@
         "height": {
           "type": "number",
           "description": "Viewport height in CSS pixels."
+        },
+        "minWidth": {
+          "description": "The narrowest viewport, in CSS pixels, whose sessions are analyzed against this capture. Absent means no lower bound.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxWidth": {
+          "description": "The widest viewport, in CSS pixels, whose sessions are analyzed against this capture. Absent means no upper bound.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "device": {
+          "description": "The kind of device this capture stands for. Absent, it is guessed from `width`: below 640 is mobile, below 1024 tablet, and desktop otherwise.",
+          "type": "string",
+          "enum": [
+            "mobile",
+            "desktop",
+            "tablet"
+          ]
         }
       },
       "required": [
         "width",
         "height"
       ],
-      "description": "A rendered screen size: width x height in CSS pixels. Used both for the crawl capture sizes and for the size a usage event was recorded at."
+      "additionalProperties": false,
+      "description": "A screen size to capture at, and which sessions are analyzed against it. Once any screen size declares `minWidth` or `maxWidth`, every one owns the band `[minWidth ?? 0, maxWidth ?? ∞]`, and no two bands may overlap. When none declares one, each owns the widths nearer to it than to any other."
     }
   },
   "$id": "https://raw.githubusercontent.com/ralphralphai/ralph-js/main/packages/config/schema/ralph.schema.json"

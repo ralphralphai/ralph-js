@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { HostOverrideRuleSchema } from '@/host_override';
-import { ScreenSizeSchema } from '@/screen_size';
+import { CaptureScreenSizesSchema } from '@/screen_size';
 import { SimpleUrlCrawlRuleSchema } from '@/simple_url_crawl';
 import { UrlNormalizeRuleSchema } from '@/url_normalize';
 import { VariantRuleSchema } from '@/variants';
@@ -45,9 +45,9 @@ export const WebRalphConfigSchema = z
         'Variant rules to apply to the specific URL. E.g. when A/B testing multiple versions of the same page, the variant rules identify the versions so they can be aggregated.',
       ),
 
-    screenSizes: z
-      .array(ScreenSizeSchema)
-      .describe('Screen sizes to run the crawl / capture screenshots at.'),
+    screenSizes: CaptureScreenSizesSchema.describe(
+      'Screen sizes to run the crawl / capture screenshots at, and the viewport widths whose sessions each is analyzed with.',
+    ),
   })
   .meta({
     id: 'WebRalphConfig',

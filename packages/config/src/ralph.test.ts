@@ -5,6 +5,7 @@ import { HostOverrideRuleSchema } from '@/host_override';
 import type { WebRalphConfig } from '@/index';
 import { QueryParamConditionSchema } from '@/query_param';
 import { WebRalphConfigSchema } from '@/ralph';
+import { screenDeviceOf } from '@/screen_size';
 
 describe('WebRalphConfigSchema', () => {
   // The published types are generated from this schema, so the two agree by
@@ -302,5 +303,114 @@ describe('UrlRuleMatcher host', () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+describe('screenSizes bands', () => {
+  const parse = (screenSizes: unknown[]) => {
+    return WebRalphConfigSchema.safeParse({ screenSizes });
+  };
+
+  const messages = (screenSizes: unknown[]) => {
+    return (
+      parse(screenSizes).error?.issues.map((issue) => {
+        return issue.message;
+      }) ?? []
+    );
+  };
+
+  it('accepts sizes without bands, which fall back to the nearest width', () => {
+    expect(
+      parse([
+        { width: 402, height: 874 },
+        { width: 1280, height: 720 },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it('accepts adjacent open-ended bands with device tags', () => {
+    expect(
+      parse([
+        { width: 402, height: 874, maxWidth: 767, device: 'mobile' },
+        { width: 1280, height: 720, minWidth: 768, device: 'desktop' },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it('accepts gaps between bands', () => {
+    expect(
+      parse([
+        { width: 402, height: 874, maxWidth: 500 },
+        { width: 1280, height: 720, minWidth: 1024 },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it('accepts a lone size with an unbounded band', () => {
+    expect(
+      parse([{ width: 1280, height: 720, device: 'desktop' }]).success,
+    ).toBe(true);
+  });
+
+  it('rejects bands that share a width, since both bounds are inclusive', () => {
+    expect(
+      messages([
+        { width: 402, height: 874, maxWidth: 768 },
+        { width: 1280, height: 720, minWidth: 768 },
+      ]),
+    ).toEqual([expect.stringContaining('1280x720 overlaps 402x874')]);
+  });
+
+  it('rejects a size without bounds next to banded ones, since it covers every width', () => {
+    expect(
+      messages([
+        { width: 402, height: 874, maxWidth: 767 },
+        { width: 1280, height: 720 },
+      ]),
+    ).toEqual([expect.stringContaining('1280x720 overlaps 402x874')]);
+  });
+
+  it('rejects two heights at one width, which a width band cannot tell apart', () => {
+    expect(
+      messages([
+        { width: 390, height: 844, maxWidth: 500 },
+        { width: 390, height: 664, maxWidth: 500 },
+      ]),
+    ).toEqual([expect.stringContaining('390x664 overlaps 390x844')]);
+  });
+
+  it('rejects a size outside its own band', () => {
+    expect(messages([{ width: 1280, height: 720, maxWidth: 767 }])).toEqual([
+      expect.stringContaining('outside its own band'),
+    ]);
+  });
+
+  it('rejects minWidth above maxWidth', () => {
+    expect(
+      messages([{ width: 800, height: 600, minWidth: 900, maxWidth: 700 }]),
+    ).toEqual([expect.stringContaining('exceeds maxWidth')]);
+  });
+
+  it.each([
+    ['a fractional bound', { width: 800, height: 600, maxWidth: 800.5 }],
+    ['a misspelled bound', { width: 800, height: 600, maxWdth: 900 }],
+    ['an unknown device', { width: 800, height: 600, device: 'tv' }],
+  ])('rejects %s', (_label, size) => {
+    expect(parse([size]).success).toBe(false);
+  });
+});
+
+describe('screenDeviceOf', () => {
+  it.each([
+    [639, 'mobile'],
+    [640, 'tablet'],
+    [1023, 'tablet'],
+    [1024, 'desktop'],
+  ])('guesses a %ipx wide size without a device as %s', (width, device) => {
+    expect(screenDeviceOf({ width })).toBe(device);
+  });
+
+  it('keeps the device a size declares', () => {
+    expect(screenDeviceOf({ width: 1280, device: 'tablet' })).toBe('tablet');
   });
 });

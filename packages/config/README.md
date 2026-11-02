@@ -206,6 +206,34 @@ Playwright recordings and simple crawls alike, and apply after `hostOverrides`.
 Keep the path rewrites in line with `urlAnalysisNormalizeRules`, or tracker
 data won't join the graph nodes.
 
+### Which sessions each screen size is analyzed with
+
+Each session is analyzed against one captured screen size, picked by the
+session's viewport width. By default that is the nearest captured width. To
+choose the cut-offs yourself, give each screen size a `minWidth` and/or
+`maxWidth`, inclusive and in CSS pixels. A missing bound is open-ended.
+
+```jsonc
+"screenSizes": [
+  { "width": 402, "height": 874, "maxWidth": 767, "device": "mobile" },
+  { "width": 1280, "height": 720, "minWidth": 768, "device": "desktop" }
+]
+```
+
+Once one screen size declares a bound, every screen size owns the band
+`[minWidth ?? 0, maxWidth ?? ∞]`. So a screen size with no bounds covers every
+width. The config is rejected when:
+
+- two bands overlap, including two sizes that share a width;
+- a screen size's own width is outside its band;
+- `minWidth` is greater than `maxWidth`.
+
+Gaps between bands are allowed. Sessions in a gap count only toward totals that
+span every screen size. `device` tags what the capture stands for (`mobile`,
+`tablet` or `desktop`), so the dashboard can count every mobile size together.
+Without a `device`, a size is guessed from its width: below 640px is mobile,
+below 1024px tablet, and desktop otherwise.
+
 ## Declaring simple URL crawls
 
 `simpleUrlCrawlRules` lists crawls that start from one URL and follow links

@@ -13,6 +13,7 @@
 // `searchParams`, and it is private to the Ralph repo.
 
 export type {
+  CaptureScreenSize,
   Condition,
   DataFollowIgnoreRule,
   HostOverrideRule,

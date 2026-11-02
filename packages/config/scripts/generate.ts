@@ -13,6 +13,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { compile } from 'json-schema-to-typescript';
+import { z } from 'zod';
 
 import {
   buildJsonSchema,
@@ -20,6 +21,7 @@ import {
   JSON_SCHEMA_FILE,
   serializeJsonSchema,
 } from '@/json_schema';
+import { ScreenSizeSchema } from '@/screen_size';
 
 // pnpm runs a package's scripts from the package root.
 const write = (relativePath: string, contents: string) => {
@@ -31,8 +33,8 @@ const write = (relativePath: string, contents: string) => {
   console.log(`Wrote ${relativePath}`);
 };
 
-const generateTypes = async () =>
-  compile(buildJsonSchema(), 'WebRalphConfig', {
+const generateTypes = async () => {
+  const config = await compile(buildJsonSchema(), 'WebRalphConfig', {
     // Without this the generator adds an `[k: string]: unknown` index signature
     // to every object, which would let any misspelled rule typecheck.
     additionalProperties: false,
@@ -43,6 +45,23 @@ const generateTypes = async () =>
  */`,
     style: { singleQuote: true },
   });
+  // No config field holds a bare `ScreenSize` any more, but it is still the
+  // published type of the size a usage event was recorded at.
+  const screenSize = await compile(
+    z.toJSONSchema(ScreenSizeSchema, {
+      target: 'draft-7',
+      io: 'input',
+    }) as Record<string, unknown>,
+    'ScreenSize',
+    {
+      additionalProperties: false,
+      bannerComment: '',
+      style: { singleQuote: true },
+    },
+  );
+
+  return config + screenSize;
+};
 
 const main = async () => {
   write(JSON_SCHEMA_FILE, serializeJsonSchema());
