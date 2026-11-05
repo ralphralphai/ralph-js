@@ -114,6 +114,17 @@ export type Ralph = {
     conditions: ConditionsDeclaration,
   ): Promise<() => Promise<void>>;
   /**
+   * Waits for the page to reach `url`, as `page.waitForURL` does, and declares
+   * `conditions` for the node it lands on. The URL's automatic recording
+   * carries them even when it captured before this call: it is retagged
+   * rather than recorded again. Returns what `setNodeConditions` returns.
+   */
+  waitForNode(
+    page: Page,
+    url: Parameters<Page['waitForURL']>[0],
+    conditions?: ConditionsDeclaration,
+  ): Promise<() => Promise<void>>;
+  /**
    * Starts a run of the named flow, such as `Sign up`. The node most recently
    * requested in the test is its first step, and every node requested until
    * `endFlow` joins it, on every tab. A run still open when the test finishes

@@ -223,6 +223,24 @@ This changes no app state. A declaration that moves the page to a different
 node records it again, and declarations merge until the URL changes. A dialog
 at the same URL is the same node unless you give it a page tag like this.
 
+When the conditions belong to the page a step navigates to, wait for it with
+`ralph.waitForNode`:
+
+```ts
+await page.getByRole("button", { name: "Upgrade" }).click();
+await ralph.waitForNode(page, "**/checkout?plan=*", /*tag to apply*/{
+  visitorTags: { plan: "pro" },
+});
+```
+
+It takes the URL as `page.waitForURL` does. Every URL change is recorded
+automatically once the page settles, which can be before the test declares
+anything. `waitForNode` gives that recording the conditions instead of
+recording the page a second time, so the URL gets one node with them, however
+the timing falls. `setNodeConditions` right after `page.waitForURL` would
+record the page twice when the automatic capture wins: once without
+conditions, once with them.
+
 ### Flows
 
 Name the journey a test walks, such as sign-up or onboarding, so the graph can

@@ -166,6 +166,14 @@ export const test: TestType<
           checkOptIn();
           return async () => {};
         },
+        // The wait is the test's own step, so it happens unrecorded too.
+        waitForNode: async (page, url, conditions) => {
+          if (conditions !== undefined) {
+            checkOptIn();
+          }
+          await page.waitForURL(url, { waitUntil: 'commit' });
+          return async () => {};
+        },
         // Flows only label nodes, so a helper shared with untagged tests can
         // declare them without opting those tests in.
         startFlow: (name) => ({ name, end: () => {} }),

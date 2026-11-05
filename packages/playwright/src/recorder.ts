@@ -103,6 +103,12 @@ type PageState = {
   /** The last node recorded here, so a declaration that leaves the page on it records nothing. */
   lastRecorded?: { url: string; node: string; nodeId: string };
 
+  /**
+   * The node the current URL's automatic recording created. While it is still
+   * `lastRecorded`, `waitForNode` retags it instead of recording the page again.
+   */
+  visitNodeId?: string;
+
   /** The last queued recording. Recordings in a tab run one at a time. */
   tail: Promise<void>;
 
@@ -277,11 +283,40 @@ export class Recorder implements Ralph {
     state.declared.set(key, declaredConditions(declaration));
     await this.recordConditionChange(state);
 
-    return async () => {
-      if (state.declared.delete(key)) {
-        await this.recordConditionChange(state);
-      }
-    };
+    return this.undoDeclaration(state, key);
+  }
+
+  async waitForNode(
+    page: Page,
+    url: Parameters<Page['waitForURL']>[0],
+    declaration: ConditionsDeclaration = {},
+  ): Promise<() => Promise<void>> {
+    await this.observe(page.context());
+    const state = this.pages.get(page);
+    if (!state) {
+      throw new Error('Cannot wait on a closed browser page.');
+    }
+
+    await page.waitForURL(url, { waitUntil: 'commit' });
+    // `waitForURL` can resolve before the recorder hears of the navigation;
+    // applied first, the URL change would then clear this declaration.
+    this.urlChanged(state);
+    const generation = state.generation;
+
+    const key = Symbol();
+    state.declared.set(key, declaredConditions(declaration));
+    // A recording that has not read the conditions yet picks this one up.
+    await state.tail;
+
+    if (
+      !this.paused &&
+      state.generation === generation &&
+      !this.retagVisitNode(state)
+    ) {
+      await this.recordConditionChange(state);
+    }
+
+    return this.undoDeclaration(state, key);
   }
 
   startFlow(name: string): FlowRunHandle {
@@ -447,6 +482,7 @@ export class Recorder implements Ralph {
     state.generation++;
     state.lastUrl = url;
     state.declared.clear();
+    state.visitNodeId = undefined;
 
     if (!this.paused && isHttpUrl(url)) {
       // Automatic recordings never fail the test; failures land in the manifest.
@@ -460,6 +496,46 @@ export class Recorder implements Ralph {
     if (!this.paused && isHttpUrl(state.page.url())) {
       await this.enqueueCreateNodeRequest(state, 'condition-change');
     }
+  }
+
+  private undoDeclaration(state: PageState, key: symbol): () => Promise<void> {
+    return async () => {
+      if (state.declared.delete(key)) {
+        await this.recordConditionChange(state);
+      }
+    };
+  }
+
+  /**
+   * Gives the URL's automatic capture the conditions declared since. They
+   * describe the visit from its start, and declarations change no app state,
+   * so the screenshot already taken stands for the declared node.
+   */
+  private retagVisitNode(state: PageState): boolean {
+    const nodeId = state.visitNodeId;
+    if (!nodeId || state.lastRecorded?.nodeId !== nodeId) {
+      return false;
+    }
+    const index = this.nodes.findIndex((item) => item.nodeId === nodeId);
+    const visit = this.nodes[index];
+    if (visit?.status !== 'recorded') {
+      return false;
+    }
+
+    const conditions = this.declaredConditions(state);
+    const mismatches = mismatchesOf(conditions, visit.reportedTags);
+    const {
+      conditions: _conditions,
+      tagMismatches: _tagMismatches,
+      ...rest
+    } = visit;
+    this.nodes[index] = {
+      ...rest,
+      ...withConditions(conditions),
+      ...(mismatches.length > 0 ? { tagMismatches: mismatches } : {}),
+    };
+    state.lastRecorded = { ...state.lastRecorded, node: nodeKey(conditions) };
+    return true;
   }
 
   private declaredConditions(state: PageState): NodeConditions {
@@ -645,6 +721,13 @@ export class Recorder implements Ralph {
       if (retaken === -1) {
         this.nodes.push(recorded);
         state.lastRecorded = { url: request.url, node, nodeId: request.nodeId };
+        // Saving attachments can finish after the next URL has arrived.
+        if (
+          request.trigger === 'url-change' &&
+          state.generation === generation
+        ) {
+          state.visitNodeId = request.nodeId;
+        }
       } else {
         // Keeps the capture's id and place, which later captures link from.
         const { nodeId, sequence, requestedAt, name, edgeLabel } =

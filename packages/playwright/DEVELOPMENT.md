@@ -78,6 +78,22 @@ event, `page.opener()`, fixtures), so identity lookups work.
 - `generation`: bumped on every main-frame navigation, reloads included. A
   recording that finishes under a different generation was overtaken.
 - `sequence`: the next node's position within the tab.
+- `declared`: the test's condition layers for the current URL, cleared on
+  every URL change. A recording reads them when it captures, not when it is
+  requested.
+- `visitNodeId`: the node the current URL's automatic recording created,
+  assigned only while that capture's navigation generation is still current.
+  `waitForNode` declares its layer, waits for `tail`, and then, if recording
+  is active and that node is still `lastRecorded`, rewrites its conditions
+  and `tagMismatches` (against the `reportedTags` from capture) instead of
+  queuing a `condition-change` recording. Declarations change no app state,
+  so the screenshot stands. If the automatic recording failed, was skipped,
+  or a later node replaced it, `waitForNode` records the page as
+  `setNodeConditions` does. It also runs
+  `urlChanged` itself, because `waitForURL` can resolve before the
+  `framenavigated` listener fires, and that late URL change would clear the
+  new layer. While paused, it still waits and declares conditions, but leaves
+  recorded nodes unchanged, as does undoing a declaration.
 - `tail`: the last queued recording. Recordings in one tab run one at a time;
   tabs run in parallel except for frozen capture steps in a shared context.
 - `opener`: a promise that resolves once `info.openerPageId` is filled in from

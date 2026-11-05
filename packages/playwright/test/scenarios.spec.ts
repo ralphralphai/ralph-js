@@ -341,6 +341,123 @@ test('node conditions', { tag: '@ralph' }, async ({ context, page, ralph }) => {
 });
 
 test(
+  'nodes waited for',
+  { tag: '@ralph' },
+  async ({ context, page, ralph }) => {
+    await context.route('https://tags.test/**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: taggedHtml }),
+    );
+    await page.goto('https://tags.test/start');
+    await ralph.waitForCapture();
+
+    // Declared after the automatic capture finished.
+    await page.goto('https://tags.test/checkout?plan=yearly');
+    await ralph.waitForCapture();
+    await ralph.waitForNode(page, '**/checkout?plan=*', {
+      visitorTags: { experiment: 'control' },
+    });
+
+    // Declared as a client-side route change lands, whenever its capture runs.
+    await page.evaluate(() => history.pushState({}, '', '/shipping'));
+    const undo = await ralph.waitForNode(
+      page,
+      (url) => url.pathname === '/shipping',
+      { visitorTags: { experiment: 'treatment' } },
+    );
+    await undo();
+    await ralph.waitForCapture();
+  },
+);
+
+test.describe('waiting for nodes while paused', () => {
+  test.use({
+    ralphOptions: async ({ ralphOptions }, use) => {
+      await use({ ...ralphOptions, strictNodeTags: true });
+    },
+  });
+
+  test.beforeEach(async ({ context, page, ralph }) => {
+    await context.route('https://tags.test/**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: taggedHtml }),
+    );
+    await page.goto('https://tags.test/checkout');
+    await ralph.waitForCapture();
+    ralph.pause();
+  });
+
+  test(
+    'paused wait can be undone',
+    { tag: '@ralph' },
+    async ({ page, ralph }) => {
+      const undo = await ralph.waitForNode(page, '**/checkout', {
+        visitorTags: { experiment: 'treatment' },
+      });
+      await undo();
+      ralph.resume();
+      await ralph.recordNode(page);
+    },
+  );
+
+  test(
+    'paused wait keeps its declaration',
+    { tag: '@ralph' },
+    async ({ page, ralph }) => {
+      await ralph.waitForNode(page, '**/checkout', {
+        visitorTags: { experiment: 'control' },
+      });
+      ralph.resume();
+      await ralph.recordNode(page);
+    },
+  );
+});
+
+test.describe('navigation during capture attachments', () => {
+  test.use({
+    ralphOptions: async ({ ralphOptions }, use) => {
+      let failed = false;
+      await use({
+        ...ralphOptions,
+        ready: async (page) => {
+          if (new URL(page.url()).pathname === '/b' && !failed) {
+            failed = true;
+            throw new Error('The automatic capture of B failed.');
+          }
+        },
+      });
+    },
+  });
+
+  test(
+    'wait retries the current visit',
+    { tag: '@ralph' },
+    async ({ context, page, ralph }, testInfo) => {
+      // The failed automatic capture still fails teardown, even after a retry.
+      test.fail();
+      await context.route('https://tags.test/**', (route) =>
+        route.fulfill({ contentType: 'text/html', body: taggedHtml }),
+      );
+
+      const attach = testInfo.attach.bind(testInfo);
+      let navigated = false;
+      testInfo.attach = async (name, options) => {
+        if (name.startsWith('ralph-screenshot-') && !navigated) {
+          navigated = true;
+          // A's screenshot is complete, but saving it crosses the navigation.
+          await page.goto('https://tags.test/b');
+        }
+        await attach(name, options);
+      };
+
+      await page.goto('https://tags.test/a');
+      await ralph.waitForCapture();
+      await ralph.waitForNode(page, '**/b', {
+        visitorTags: { experiment: 'control' },
+      });
+    },
+  );
+});
+
+test(
   'teardown drains automatic recording',
   { tag: '@ralph' },
   async ({ page }) => {

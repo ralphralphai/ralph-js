@@ -823,6 +823,68 @@ it('records each node under the conditions the test declared', () => {
   });
 });
 
+it('gives each node waited for its conditions, once', () => {
+  const items = recordedNodes('nodes waited for');
+  expect(
+    items.map((item) => [
+      new URL(item.url).pathname,
+      item.trigger,
+      item.conditions,
+      item.tagMismatches,
+    ]),
+  ).toEqual([
+    ['/start', 'url-change', undefined, undefined],
+    [
+      '/checkout',
+      'url-change',
+      { visitorTags: { experiment: ['control'] } },
+      undefined,
+    ],
+    // Checked against the tags the app reported at capture.
+    [
+      '/shipping',
+      'url-change',
+      { visitorTags: { experiment: ['treatment'] } },
+      ['visitorTags.experiment'],
+    ],
+    ['/shipping', 'condition-change', undefined, undefined],
+  ]);
+});
+
+it('leaves recorded conditions unchanged when a paused wait is undone', () => {
+  const items = recordedNodes('paused wait can be undone');
+  expect(items).toHaveLength(1);
+  expect(items[0].conditions).toBeUndefined();
+  expect(items[0].tagMismatches).toBeUndefined();
+});
+
+it('applies a paused wait declaration to the next capture after resuming', () => {
+  const items = recordedNodes('paused wait keeps its declaration');
+  expect(items.map((item) => [item.trigger, item.conditions])).toEqual([
+    ['url-change', undefined],
+    ['explicit', { visitorTags: { experiment: ['control'] } }],
+  ]);
+});
+
+it('retries a failed visit instead of retagging a previous URL saved after navigation', () => {
+  const items = manifest('wait retries the current visit').nodes;
+  expect(
+    items.map((item) => [
+      new URL(item.url).pathname,
+      item.trigger,
+      item.status,
+    ]),
+  ).toEqual([
+    ['/a', 'url-change', 'recorded'],
+    ['/b', 'url-change', 'uncaptured'],
+    ['/b', 'condition-change', 'recorded'],
+  ]);
+  expect(items[0].conditions).toBeUndefined();
+  expect(items[2].conditions).toEqual({
+    visitorTags: { experiment: ['control'] },
+  });
+});
+
 it('hashes the images the page loaded, without fetching them again', async () => {
   const node = recordedNodes('image hashes').at(-1);
   const entry = merged.snapshots.find(({ nodeId }) => nodeId === node?.nodeId);
